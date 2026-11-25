@@ -16,6 +16,7 @@ import type { ExportFormat } from "@/app/api/export/route";
 import type { DxfUnit } from "@/lib/cad/dxf";
 import { pathToSvgD, roundCm } from "@/lib/cad/math";
 import type {
+  GradingOverrides,
   NestedGradingResult,
   ParamValues,
   SizeCode,
@@ -39,6 +40,7 @@ interface ExportModalProps {
   templateName: string;
   params: ParamValues;
   grading: NestedGradingResult;
+  gradingOverrides: GradingOverrides;
   initialSizes: SizeCode[];
 }
 
@@ -104,6 +106,7 @@ export function ExportModal({
   templateName,
   params,
   grading,
+  gradingOverrides,
   initialSizes,
 }: ExportModalProps) {
   const [format, setFormat] = useState<ExportFormat>("dxf");
@@ -176,6 +179,7 @@ export function ExportModal({
           unit,
           includeSeamLines,
           includeMarkings,
+          gradingOverrides,
         }),
       });
 

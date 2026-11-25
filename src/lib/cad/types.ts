@@ -258,6 +258,17 @@ export interface NestedGradingResult {
 
 /* ==================== Template Plugin Interface ==================== */
 
+export interface GradingOverrides {
+  /** Step increment per size for waist circumference (cm, default 4.0) */
+  waistStepCm?: number;
+  /** Step increment per size for skirt length (cm, default 1.0) */
+  skirtLengthStepCm?: number;
+  /** Extra radial grade adjustment at Position [1] (Center Waist CF, mm per size step, default 0) */
+  pos1WaistMidOffsetMm?: number;
+  /** Extra radial grade adjustment at Position [2] (Center Hem CF, mm per size step, default 0) */
+  pos2HemMidOffsetMm?: number;
+}
+
 export interface PatternTemplate {
   id: string;
   name: string;
@@ -270,10 +281,11 @@ export interface PatternTemplate {
   getDefaultParams: () => ParamValues;
   generateGeometry: (
     params: ParamValues,
-    options?: Record<string, number | undefined>
+    options?: Record<string, unknown>
   ) => PatternGeometryResult;
   generateGrading: (
     baseParams: ParamValues,
-    baseSize: SizeCode
+    baseSize: SizeCode,
+    overrides?: GradingOverrides
   ) => NestedGradingResult;
 }

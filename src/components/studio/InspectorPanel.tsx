@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { roundCm } from "@/lib/cad/math";
 import type {
+  GradingOverrides,
   NestedGradingResult,
   SizeCode,
 } from "@/lib/cad/types";
@@ -18,21 +19,26 @@ import { SIZE_DEFINITIONS } from "@/templates/circle-skirt/grading";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface InspectorPanelProps {
   grading: NestedGradingResult;
+  gradingOverrides: GradingOverrides;
   visibleSizes: SizeCode[];
   selectedPieceId: string | null;
+  onGradingOverridesChange: (next: GradingOverrides) => void;
   onFocusPiece: (pieceId: string) => void;
   onOpenExportModal: () => void;
 }
 
 export function InspectorPanel({
   grading,
+  gradingOverrides,
   visibleSizes,
   selectedPieceId,
+  onGradingOverridesChange,
   onFocusPiece,
   onOpenExportModal,
 }: InspectorPanelProps) {
@@ -184,6 +190,126 @@ export function InspectorPanel({
 
           {/* TAB 2: Grading Spec Table & Key Point Coordinates (X, Y) */}
           <TabsContent value="grading" className="space-y-4">
+            {/* Custom Grade Step & Position [1] / [2] Input Box */}
+            <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/40 p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-[11px] font-semibold text-[#0F172A]">
+                  Ô điền giá trị nhảy size & Vị trí [1] – [2]
+                </h3>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onGradingOverridesChange({
+                      waistStepCm: 4.0,
+                      skirtLengthStepCm: 1.0,
+                      pos1WaistMidOffsetMm: 0,
+                      pos2HemMidOffsetMm: 0,
+                    })
+                  }
+                  className="text-[10px] font-medium text-[#4F46E5] hover:underline cursor-pointer"
+                >
+                  Mặc định
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-slate-600">
+                    Bước eo / size (cm)
+                  </label>
+                  <Input
+                    type="number"
+                    step={0.5}
+                    min={1}
+                    max={10}
+                    value={gradingOverrides.waistStepCm ?? 4.0}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (!Number.isNaN(v)) {
+                        onGradingOverridesChange({
+                          ...gradingOverrides,
+                          waistStepCm: v,
+                        });
+                      }
+                    }}
+                    className="h-7 bg-white font-mono text-xs text-right"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-slate-600">
+                    Bước dài / size (cm)
+                  </label>
+                  <Input
+                    type="number"
+                    step={0.5}
+                    min={0}
+                    max={6}
+                    value={gradingOverrides.skirtLengthStepCm ?? 1.0}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (!Number.isNaN(v)) {
+                        onGradingOverridesChange({
+                          ...gradingOverrides,
+                          skirtLengthStepCm: v,
+                        });
+                      }
+                    }}
+                    className="h-7 bg-white font-mono text-xs text-right"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-slate-600">
+                    Vị trí [1] Giữa eo (bù mm)
+                  </label>
+                  <Input
+                    type="number"
+                    step={0.5}
+                    min={-25}
+                    max={25}
+                    value={gradingOverrides.pos1WaistMidOffsetMm ?? 0}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (!Number.isNaN(v)) {
+                        onGradingOverridesChange({
+                          ...gradingOverrides,
+                          pos1WaistMidOffsetMm: v,
+                        });
+                      }
+                    }}
+                    className="h-7 bg-white font-mono text-xs text-right"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-slate-600">
+                    Vị trí [2] Giữa lai (bù mm)
+                  </label>
+                  <Input
+                    type="number"
+                    step={0.5}
+                    min={-25}
+                    max={25}
+                    value={gradingOverrides.pos2HemMidOffsetMm ?? 0}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (!Number.isNaN(v)) {
+                        onGradingOverridesChange({
+                          ...gradingOverrides,
+                          pos2HemMidOffsetMm: v,
+                        });
+                      }
+                    }}
+                    className="h-7 bg-white font-mono text-xs text-right"
+                  />
+                </div>
+              </div>
+
+              <p className="text-[10px] leading-snug text-slate-500">
+                Mặc định bù <strong className="font-mono text-[#0F172A]">0 mm</strong> →
+                đồng tâm chuẩn (<strong className="text-[#4F46E5]">Y sườn = X giữa [1]/[2]</strong>).
+                Điền +/- mm để tùy chỉnh riêng tại vị trí [1] hoặc [2].
+              </p>
+            </div>
+
             {/* Table 1: Radii & Spec Table across S, M, L, XL */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">

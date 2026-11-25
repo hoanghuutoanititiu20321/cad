@@ -1,6 +1,7 @@
 import { mergeBoundingBoxes, roundCm, roundMm } from "@/lib/cad/math";
 import type {
   GradedSizeEntry,
+  GradingOverrides,
   NestedGradingResult,
   ParamValues,
   PointGradingRow,
@@ -11,7 +12,7 @@ import {
   computeCircleSkirtRadii,
   generateCircleSkirtGeometry,
 } from "./geometry";
-import { parseCircleSkirtParams } from "./schema";
+import { parseCircleSkirtParams, WAISTBAND_HEIGHT_CM } from "./schema";
 
 /**
  * Standard grading increments per size step (S -> M -> L -> XL):
@@ -77,52 +78,79 @@ const SIZE_INDEX: Record<SizeCode, number> = {
  */
 export function generateCircleSkirtGrading(
   rawBaseParams: ParamValues,
-  baseSize: SizeCode = "M"
+  baseSize: SizeCode = "M",
+  overrides?: GradingOverrides
 ): NestedGradingResult {
   const baseParsed = parseCircleSkirtParams(rawBaseParams);
   const baseIdx = SIZE_INDEX[baseSize];
   const baseRadii = computeCircleSkirtRadii(baseParsed);
 
+  const waistStepCm =
+    overrides?.waistStepCm ?? CIRCLE_SKIRT_GRADE_RULES.waistStepCm;
+  const skirtLengthStepCm =
+    overrides?.skirtLengthStepCm ?? CIRCLE_SKIRT_GRADE_RULES.skirtLengthStepCm;
+  const pos1OffsetPerStepMm = overrides?.pos1WaistMidOffsetMm ?? 0;
+  const pos2OffsetPerStepMm = overrides?.pos2HemMidOffsetMm ?? 0;
+
+  // Compute Base Size curved waistband radius (kept IDENTICAL across S, M, L, XL
+  // so left & right ends have identical curvature and grade symmetrically!)
+  const defaultSweepRad = 40 / (WAISTBAND_HEIGHT_CM * 10); // 40 / 35
+  const fixedWaistbandRTopMm = roundMm((baseParsed.waist * 10) / defaultSweepRad);
+
   // Pre-compute XL params first to determine a shared, collision-free Y anchor for the nested waistbands
   const xlStep = SIZE_INDEX.XL - baseIdx;
+  const xlWaistCm = roundCm(
+    Math.max(44, baseParsed.waist + xlStep * waistStepCm),
+    2
+  );
   const xlParams: ParamValues = {
     ...rawBaseParams,
-    waist: roundCm(
-      baseParsed.waist + xlStep * CIRCLE_SKIRT_GRADE_RULES.waistStepCm,
-      2
-    ),
+    waist: xlWaistCm,
     skirtLength: roundCm(
-      baseParsed.skirtLength +
-        xlStep * CIRCLE_SKIRT_GRADE_RULES.skirtLengthStepCm,
+      Math.max(20, baseParsed.skirtLength + xlStep * skirtLengthStepCm),
       2
     ),
   };
-  const xlProbe = generateCircleSkirtGeometry(xlParams);
+  const xlProbe = generateCircleSkirtGeometry(xlParams, {
+    fixedWaistbandRTopMm,
+  });
   const xlSkirtBbox = xlProbe.pieces[0].bbox;
-  const xlWaistMm = Number(xlParams.waist) * 10;
-  const sweepRad = 40 / 35;
+  const xlSweepRad = (xlWaistCm * 10) / fixedWaistbandRTopMm;
   const xlCurvedRiseMm =
     baseParsed.waistbandType === "curved"
-      ? roundMm((xlWaistMm / sweepRad) * (1 - Math.cos(sweepRad / 2)) + baseParsed.seamAllowance * 10)
+      ? roundMm(
+          fixedWaistbandRTopMm * (1 - Math.cos(xlSweepRad / 2)) +
+            baseParsed.seamAllowance * 10
+        )
       : roundMm(baseParsed.seamAllowance * 10);
   const sharedWaistbandTopY = roundMm(xlSkirtBbox.maxY + 95 + xlCurvedRiseMm);
 
-  // Build full geometry for S, M, L, XL sharing concentric skirt origin & aligned waistband anchor
+  // Compute Base Size grainlines once and freeze them across S, M, L, XL!
+  // Gerber AccuMark aligns graded blocks by their Layer 7 Grainline:
+  // freezing grainline coordinates keeps arc center (0,0) and waistband CF (x=0) locked,
+  // guaranteeing ΔY(waist side) === ΔX(waist CF [1]) and symmetric waistband ends!
+  const baseProbe = generateCircleSkirtGeometry(rawBaseParams, {
+    waistbandTopY: sharedWaistbandTopY,
+    fixedWaistbandRTopMm,
+  });
+  const fixedSkirtGrainline = {
+    start: baseProbe.pieces[0].grainline.start,
+    end: baseProbe.pieces[0].grainline.end,
+  };
+  const fixedWaistbandGrainline = {
+    start: baseProbe.pieces[1].grainline.start,
+    end: baseProbe.pieces[1].grainline.end,
+  };
+
+  // Build full geometry for S, M, L, XL sharing concentric skirt origin, identical grainline & curvature
   const entries: GradedSizeEntry[] = SIZE_DEFINITIONS.map((def) => {
     const stepDelta = SIZE_INDEX[def.code] - baseIdx;
     const sizeWaist = roundCm(
-      Math.max(
-        44,
-        baseParsed.waist + stepDelta * CIRCLE_SKIRT_GRADE_RULES.waistStepCm
-      ),
+      Math.max(44, baseParsed.waist + stepDelta * waistStepCm),
       2
     );
     const sizeLength = roundCm(
-      Math.max(
-        20,
-        baseParsed.skirtLength +
-          stepDelta * CIRCLE_SKIRT_GRADE_RULES.skirtLengthStepCm
-      ),
+      Math.max(20, baseParsed.skirtLength + stepDelta * skirtLengthStepCm),
       2
     );
 
@@ -136,6 +164,11 @@ export function generateCircleSkirtGrading(
     const radii = computeCircleSkirtRadii(parsedSize);
     const geometry = generateCircleSkirtGeometry(sizeParams, {
       waistbandTopY: sharedWaistbandTopY,
+      fixedWaistbandRTopMm,
+      fixedSkirtGrainline,
+      fixedWaistbandGrainline,
+      pos1WaistMidDeltaMm: roundMm(stepDelta * pos1OffsetPerStepMm),
+      pos2HemMidDeltaMm: roundMm(stepDelta * pos2OffsetPerStepMm),
     });
 
     return {
@@ -151,8 +184,12 @@ export function generateCircleSkirtGrading(
         rWaistMm: radii.rWaistMm,
         rHemCm: roundCm(radii.rHemCm, 2),
         rHemMm: radii.rHemMm,
-        deltaRWaistMm: roundMm(radii.rWaistMm - baseRadii.rWaistMm),
-        deltaRHemMm: roundMm(radii.rHemMm - baseRadii.rHemMm),
+        deltaRWaistMm: roundMm(
+          radii.rWaistMm - baseRadii.rWaistMm + stepDelta * pos1OffsetPerStepMm
+        ),
+        deltaRHemMm: roundMm(
+          radii.rHemMm - baseRadii.rHemMm + stepDelta * pos2OffsetPerStepMm
+        ),
         pieceArcWaistCm: radii.pieceArcWaistCm,
         pieceArcHemCm: radii.pieceArcHemCm,
       },

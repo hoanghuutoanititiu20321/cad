@@ -117,7 +117,10 @@ function makeCoordinateMapper(
  *    so arcs grade uniformly across S, M, L, XL without flattening or distortion.
  * 2. Preserve full S-M-L-XL grading rules on the Waistband (WB-01) even after "Swap Sew/Cut".
  */
-function samplePathWithGradePoints(path: VectorPath): {
+function samplePathWithGradePoints(
+  path: VectorPath,
+  arcMidOffsets?: { outerDeltaMm?: number; innerDeltaMm?: number }
+): {
   vertices: Point2D[];
   gradePointIndices: number[];
 } {
@@ -152,6 +155,7 @@ function samplePathWithGradePoints(path: VectorPath): {
     }
   }
 
+  let arcIdx = 0;
   for (const seg of path.segments) {
     if (seg.type === "M") {
       cursor = seg.to;
@@ -170,12 +174,25 @@ function samplePathWithGradePoints(path: VectorPath): {
       ) {
         const diff = seg.endAngle - seg.startAngle;
         const midStep = Math.floor(FIXED_ARC_STEPS / 2); // Exact arc midpoint (e.g. CF Waist [1] & CF Hem [2])
+        // First arc in annular sector is outer hem arc [2], second arc is inner waist arc [1]
+        const midOffset =
+          arcIdx === 0
+            ? (arcMidOffsets?.outerDeltaMm ?? 0)
+            : (arcMidOffsets?.innerDeltaMm ?? 0);
+        arcIdx++;
+
         for (let i = 1; i <= FIXED_ARC_STEPS; i++) {
-          const a = seg.startAngle + (diff * i) / FIXED_ARC_STEPS;
+          const t = i / FIXED_ARC_STEPS;
+          const a = seg.startAngle + diff * t;
+          // Smooth sine bell curve: 0 at both side corners, exact midOffset at arc midpoint [1] / [2]
+          const rAdjusted =
+            midOffset !== 0
+              ? seg.radius + midOffset * Math.sin(t * Math.PI)
+              : seg.radius;
           if (i === midStep || i === FIXED_ARC_STEPS) {
             gradeIdxSet.add(pts.length);
           }
-          pts.push(polarPoint(seg.center, seg.radius, a));
+          pts.push(polarPoint(seg.center, rAdjusted, a));
         }
       } else {
         gradeIdxSet.add(pts.length);
@@ -405,8 +422,34 @@ function buildPieceBlock(
   //      so Gerber AccuMark NEVER splits the inner waist hole into a separate floating piece!
   //    - Every structural corner AND arc midpoint (CF Waist [1], CF Hem [2], WB Top/Bot Mid)
   //      receives an exact-coordinate Layer 2 Grade Point matching the POLYLINE vertex 1:1.
+  // Detect any custom radial offset at Position [1] (CF Waist P2) & Position [2] (CF Hem P5)
+  const skirtArcOffsets =
+    piece.id === "skirt-panel"
+      ? (() => {
+          const kpW = piece.keyPoints.find((k) => k.code === "P2");
+          const kpH = piece.keyPoints.find((k) => k.code === "P5");
+          const sewSegs = piece.sewPaths[0]?.segments ?? [];
+          const outerArc = sewSegs.find((s) => s.type === "A" && s.radius !== undefined);
+          const innerArc = [...sewSegs]
+            .reverse()
+            .find((s) => s.type === "A" && s.radius !== undefined);
+          const outerDeltaMm =
+            kpH && outerArc && outerArc.type === "A" && outerArc.radius !== undefined
+              ? roundMm(kpH.point.y - outerArc.radius)
+              : 0;
+          const innerDeltaMm =
+            kpW && innerArc && innerArc.type === "A" && innerArc.radius !== undefined
+              ? roundMm(kpW.point.y - innerArc.radius)
+              : 0;
+          return { outerDeltaMm, innerDeltaMm };
+        })()
+      : undefined;
+
   piece.cutPaths.forEach((cp, idx) => {
-    const { vertices, gradePointIndices } = samplePathWithGradePoints(cp);
+    const { vertices, gradePointIndices } = samplePathWithGradePoints(
+      cp,
+      idx === 0 ? skirtArcOffsets : undefined
+    );
     const mappedVerts = vertices.map(mapPt);
     const layer = idx === 0 ? AAMA_DXF_LAYERS.CUT : AAMA_DXF_LAYERS.CUTOUT;
     out.push(
@@ -431,7 +474,10 @@ function buildPieceBlock(
   //    so "Swap Sew/Cut" in Gerber AccuMark retains 100% of S-M-L-XL grading on both Skirt & Waistband!
   if (options.includeSeamLines) {
     for (const sp of piece.sewPaths) {
-      const { vertices, gradePointIndices } = samplePathWithGradePoints(sp);
+      const { vertices, gradePointIndices } = samplePathWithGradePoints(
+        sp,
+        skirtArcOffsets
+      );
       const mappedVerts = vertices.map(mapPt);
       out.push(
         ...emitPolylineR12(

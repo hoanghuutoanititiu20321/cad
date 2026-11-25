@@ -3,7 +3,7 @@ import JSZip from "jszip";
 import { generatePatternDxf, type DxfUnit } from "@/lib/cad/dxf";
 import { generatePatternPdfA0, generatePatternPdfA4Tiled } from "@/lib/cad/pdf";
 import { generateTechPackCsv } from "@/lib/cad/techpack";
-import type { ParamValues, SizeCode } from "@/lib/cad/types";
+import type { GradingOverrides, ParamValues, SizeCode } from "@/lib/cad/types";
 import { getTemplateById } from "@/templates/registry";
 
 export type ExportFormat = "dxf" | "pdf-a0" | "pdf-a4" | "zip";
@@ -17,6 +17,7 @@ interface ExportRequestBody {
   unit?: DxfUnit;
   includeSeamLines?: boolean;
   includeMarkings?: boolean;
+  gradingOverrides?: GradingOverrides;
 }
 
 const VALID_SIZES: SizeCode[] = ["S", "M", "L", "XL"];
@@ -46,7 +47,11 @@ export async function POST(request: Request) {
     const includeSeamLines = body.includeSeamLines ?? true;
     const includeMarkings = body.includeMarkings ?? true;
 
-    const grading = template.generateGrading(params, baseSize);
+    const grading = template.generateGrading(
+      params,
+      baseSize,
+      body.gradingOverrides
+    );
     const templateLabel = `${template.name} (${template.englishName})`;
 
     if (format === "dxf") {

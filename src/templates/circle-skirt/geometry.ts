@@ -76,6 +76,20 @@ export function computeCircleSkirtRadii(
   };
 }
 
+export interface CircleSkirtGeometryOptions {
+  /** Shared vertical top-center anchor for nested waistbands */
+  waistbandTopY?: number;
+  /** Fixed curved waistband inner radius (from Base Size) so all graded sizes share identical curvature and grade symmetrically at both ends */
+  fixedWaistbandRTopMm?: number;
+  /** Fixed grainline coordinates (from Base Size) so Gerber AccuMark aligns all graded blocks concentrically without shifting X */
+  fixedSkirtGrainline?: { start: { x: number; y: number }; end: { x: number; y: number } };
+  fixedWaistbandGrainline?: { start: { x: number; y: number }; end: { x: number; y: number } };
+  /** Optional custom radial offset at Position [1] (CF Waist midpoint, mm) for this size */
+  pos1WaistMidDeltaMm?: number;
+  /** Optional custom radial offset at Position [2] (CF Hem midpoint, mm) for this size */
+  pos2HemMidDeltaMm?: number;
+}
+
 /**
  * Build Piece 1: Tùng váy xòe (Flared Skirt Panel)
  * Centered symmetrically hanging downward (+Y axis = Center Front / Midline, angle = 90°).
@@ -83,7 +97,8 @@ export function computeCircleSkirtRadii(
  */
 function buildSkirtPanelPiece(
   params: CircleSkirtParams,
-  radii: CircleSkirtRadii
+  radii: CircleSkirtRadii,
+  options?: CircleSkirtGeometryOptions
 ): { piece: PatternPiece; warnings: string[] } {
   const warnings: string[] = [];
   const center = pt(0, 0);
@@ -440,14 +455,40 @@ function buildSkirtPanelPiece(
     );
   }
 
-  // Grainline placed cleanly along the center axis inside the lower panel body
+  // Grainline placed cleanly along the center axis inside the lower panel body.
+  // When grading S-M-L-XL, reuse Base Size grainline coordinates so Gerber AccuMark
+  // aligns all graded sizes concentrically (ΔY at waist side === ΔX at waist CF [1]!).
   const grainStartR = roundMm(rWaistMm + params.skirtLength * 10 * 0.24);
   const grainEndR = roundMm(rWaistMm + params.skirtLength * 10 * 0.76);
   const grainline = {
-    start: polarPoint(center, grainStartR, midAngle),
-    end: polarPoint(center, grainEndR, midAngle),
+    start: options?.fixedSkirtGrainline?.start ?? polarPoint(center, grainStartR, midAngle),
+    end: options?.fixedSkirtGrainline?.end ?? polarPoint(center, grainEndR, midAngle),
     label: "Canh sợi dọc (Straight Grain)",
   };
+
+  // Optional custom radial adjustment at Position [1] (CF Waist) & Position [2] (CF Hem)
+  const dPos1 = roundMm(options?.pos1WaistMidDeltaMm ?? 0);
+  const dPos2 = roundMm(options?.pos2HemMidDeltaMm ?? 0);
+  if ((dPos1 !== 0 || dPos2 !== 0) && !isFullCirclePiece) {
+    const kpW = keyPoints.find((k) => k.code === "P2");
+    if (kpW && dPos1 !== 0) {
+      kpW.point = pt(kpW.point.x, kpW.point.y + dPos1);
+    }
+    const kpH = keyPoints.find((k) => k.code === "P5");
+    if (kpH && dPos2 !== 0) {
+      kpH.point = pt(kpH.point.x, kpH.point.y + dPos2);
+    }
+    const nW = notches.find((n) => n.id === "skirt-notch-cf-waist");
+    if (nW && dPos1 !== 0) {
+      nW.point = pt(nW.point.x, nW.point.y + dPos1);
+      if (nW.cutPoint) nW.cutPoint = pt(nW.cutPoint.x, nW.cutPoint.y + dPos1);
+    }
+    const nH = notches.find((n) => n.id === "skirt-notch-cf-hem");
+    if (nH && dPos2 !== 0) {
+      nH.point = pt(nH.point.x, nH.point.y + dPos2);
+      if (nH.cutPoint) nH.cutPoint = pt(nH.cutPoint.x, nH.cutPoint.y + dPos2);
+    }
+  }
 
   // Label anchor offset slightly right of grainline so text stays crisp
   const labelR = roundMm(rWaistMm + params.skirtLength * 10 * 0.48);
@@ -512,7 +553,8 @@ function buildSkirtPanelPiece(
  */
 function buildWaistbandPiece(
   params: CircleSkirtParams,
-  anchorTopY: number
+  anchorTopY: number,
+  options?: CircleSkirtGeometryOptions
 ): PatternPiece {
   const waistMm = roundMm(params.waist * 10);
   const heightMm = roundMm(WAISTBAND_HEIGHT_CM * 10); // 35.00 mm
@@ -653,18 +695,27 @@ function buildWaistbandPiece(
     );
 
     grainline = {
-      start: pt(-Math.min(140, halfW * 0.55), yTop + heightMm / 2),
-      end: pt(Math.min(140, halfW * 0.55), yTop + heightMm / 2),
+      start:
+        options?.fixedWaistbandGrainline?.start ??
+        pt(-Math.min(120, halfW * 0.45), yTop + heightMm / 2),
+      end:
+        options?.fixedWaistbandGrainline?.end ??
+        pt(Math.min(120, halfW * 0.45), yTop + heightMm / 2),
       label: "Canh sợi dọc lưng (Waistband Grain)",
     };
     labelAnchor = pt(0, yTop + heightMm / 2);
     areaMm2 = roundMm((waistMm + 2 * saMm) * (heightMm + 2 * saMm));
   } else {
     // Curved (Contoured) Waistband — exact truncated cone frustum!
-    // Top edge = waist, Bottom edge = waist + 4.0 cm (40mm anatomical hip flare over 3.5 cm height)
+    // In industrial garment grading (Gerber AccuMark), all graded sizes S-M-L-XL share
+    // the EXACT same curvature radius (R_top from Base Size) and extend symmetrically
+    // at BOTH ends (-20mm left, +20mm right per size) so left & right ends match 100%!
     const contourFlareMm = 40;
-    const sweepAngleRad = contourFlareMm / heightMm; // 40 / 35 ≈ 1.14286 rad (65.48°)
-    const rTop = roundMm(waistMm / sweepAngleRad);
+    const defaultSweepRad = contourFlareMm / heightMm; // 40 / 35 ≈ 1.14286 rad
+    const rTop = roundMm(
+      options?.fixedWaistbandRTopMm ?? waistMm / defaultSweepRad
+    );
+    const sweepAngleRad = waistMm / rTop;
     const rBot = roundMm(rTop + heightMm);
 
     // Place arc center above anchorTopY so the top-center of the curved waistband sits at (0, anchorTopY)
@@ -767,10 +818,11 @@ function buildWaistbandPiece(
     );
 
     const midR = roundMm(rTop + heightMm / 2);
-    const grainSpan = Math.min(0.22, sweepAngleRad * 0.25);
+    const grainHalfLen = Math.min(110, roundMm(waistMm * 0.16));
+    const grainY = roundMm(anchorTopY + heightMm / 2);
     grainline = {
-      start: polarPoint(arcCenter, midR, midAngle - grainSpan),
-      end: polarPoint(arcCenter, midR, midAngle + grainSpan),
+      start: options?.fixedWaistbandGrainline?.start ?? pt(-grainHalfLen, grainY),
+      end: options?.fixedWaistbandGrainline?.end ?? pt(grainHalfLen, grainY),
       label: "Canh sợi ngang (CF Perpendicular)",
     };
     labelAnchor = polarPoint(arcCenter, midR, midAngle);
@@ -837,19 +889,26 @@ function buildWaistbandPiece(
  */
 export function generateCircleSkirtGeometry(
   rawParams: ParamValues,
-  options?: { waistbandTopY?: number }
+  options?: CircleSkirtGeometryOptions
 ): PatternGeometryResult {
   const params = parseCircleSkirtParams(rawParams);
   const radii = computeCircleSkirtRadii(params);
 
-  const { piece: skirtPiece, warnings } = buildSkirtPanelPiece(params, radii);
+  const { piece: skirtPiece, warnings } = buildSkirtPanelPiece(
+    params,
+    radii,
+    options
+  );
 
   // Position waistband neatly below skirt panel (accounting for upward tip rise of curved waistband)
+  const rTopForRise =
+    options?.fixedWaistbandRTopMm ??
+    (params.waist * 10) / (40 / (WAISTBAND_HEIGHT_CM * 10));
+  const sweepForRise = (params.waist * 10) / rTopForRise;
   const curvedRiseMm =
     params.waistbandType === "curved"
       ? roundMm(
-          ((params.waist * 10) / (40 / (WAISTBAND_HEIGHT_CM * 10))) *
-            (1 - Math.cos(40 / (WAISTBAND_HEIGHT_CM * 10) / 2)) +
+          rTopForRise * (1 - Math.cos(sweepForRise / 2)) +
             params.seamAllowance * 10
         )
       : roundMm(params.seamAllowance * 10);
@@ -859,7 +918,11 @@ export function generateCircleSkirtGeometry(
       ? options.waistbandTopY
       : roundMm(skirtPiece.bbox.maxY + 95 + curvedRiseMm);
 
-  const waistbandPiece = buildWaistbandPiece(params, waistbandAnchorTopY);
+  const waistbandPiece = buildWaistbandPiece(
+    params,
+    waistbandAnchorTopY,
+    options
+  );
 
   const pieces = [skirtPiece, waistbandPiece];
   const bbox = mergeBoundingBoxes(pieces.map((p) => p.bbox));

@@ -8,7 +8,12 @@ import {
   DraftingCompass,
   LayoutGrid,
 } from "lucide-react";
-import type { ParamValue, ParamValues, SizeCode } from "@/lib/cad/types";
+import type {
+  GradingOverrides,
+  ParamValue,
+  ParamValues,
+  SizeCode,
+} from "@/lib/cad/types";
 import {
   getTemplateById,
   TEMPLATE_CATALOG,
@@ -40,6 +45,12 @@ export function CadStudio() {
     template.getDefaultParams()
   );
   const [baseSize, setBaseSize] = useState<SizeCode>("M");
+  const [gradingOverrides, setGradingOverrides] = useState<GradingOverrides>({
+    waistStepCm: 4.0,
+    skirtLengthStepCm: 1.0,
+    pos1WaistMidOffsetMm: 0,
+    pos2HemMidOffsetMm: 0,
+  });
 
   const [layers, setLayers] = useState<LayerVisibility>({
     cutLines: true,
@@ -63,8 +74,8 @@ export function CadStudio() {
 
   // Realtime parametric geometry & nested grading computation (0.01 mm precision)
   const grading = useMemo(
-    () => template.generateGrading(params, baseSize),
-    [template, params, baseSize]
+    () => template.generateGrading(params, baseSize, gradingOverrides),
+    [template, params, baseSize, gradingOverrides]
   );
 
   const baseEntry = useMemo(
@@ -79,6 +90,12 @@ export function CadStudio() {
   const handleReset = () => {
     setParams(template.getDefaultParams());
     setBaseSize("M");
+    setGradingOverrides({
+      waistStepCm: 4.0,
+      skirtLengthStepCm: 1.0,
+      pos1WaistMidOffsetMm: 0,
+      pos2HemMidOffsetMm: 0,
+    });
     setSelectedPieceId(null);
     requestAnimationFrame(() => canvasRef.current?.fitAll());
   };
@@ -229,8 +246,10 @@ export function CadStudio() {
         <div className="w-[330px] xl:w-[365px] shrink-0 border-l border-[#E2E8F0] min-h-0 overflow-hidden">
           <InspectorPanel
             grading={grading}
+            gradingOverrides={gradingOverrides}
             visibleSizes={visibleSizes}
             selectedPieceId={selectedPieceId}
+            onGradingOverridesChange={setGradingOverrides}
             onFocusPiece={handleFocusPiece}
             onOpenExportModal={() => setExportModalOpen(true)}
           />
@@ -245,6 +264,7 @@ export function CadStudio() {
         templateName={`${template.name} (${template.englishName})`}
         params={params}
         grading={grading}
+        gradingOverrides={gradingOverrides}
         initialSizes={layers.nestedGrading ? visibleSizes : [baseSize]}
       />
     </div>

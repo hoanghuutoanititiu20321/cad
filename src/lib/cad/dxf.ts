@@ -108,11 +108,21 @@ function makeCoordinateMapper(
 }
 
 /**
- * Discretize a VectorPath into a deterministic, fixed-count vertex array.
- * Crucial for AAMA Graded DXF: S, M, L, XL ALWAYS produce the exact same vertex count!
+ * Discretize a VectorPath into a deterministic, fixed-count vertex array AND
+ * return the exact indices of structural Grade / Turn Points (corners + arc midpoints)
+ * that sit with 0.00 mm tolerance directly on the emitted POLYLINE vertices!
+ *
+ * This guarantees Gerber AccuMark PDS & Optitex:
+ * 1. Lock Grade Points (Layer 2) onto both corners AND center-waist [1] / center-hem [2] midpoints
+ *    so arcs grade uniformly across S, M, L, XL without flattening or distortion.
+ * 2. Preserve full S-M-L-XL grading rules on the Waistband (WB-01) even after "Swap Sew/Cut".
  */
-function samplePathFixedVertices(path: VectorPath): Point2D[] {
+function samplePathWithGradePoints(path: VectorPath): {
+  vertices: Point2D[];
+  gradePointIndices: number[];
+} {
   const pts: Point2D[] = [];
+  const gradeIdxSet = new Set<number>();
   let cursor: Point2D = { x: 0, y: 0 };
 
   const hasFullCircle = path.segments.some(
@@ -133,16 +143,23 @@ function samplePathFixedVertices(path: VectorPath): Point2D[] {
         const angle = (2 * Math.PI * i) / FIXED_FULL_CIRCLE_STEPS;
         pts.push(polarPoint(circleSeg.center, circleSeg.radius, angle));
       }
-      return pts;
+      // 4 cardinal grade points (0°, 90° CF, 180°, 270° CB)
+      const q = FIXED_FULL_CIRCLE_STEPS / 4;
+      return {
+        vertices: pts,
+        gradePointIndices: [0, q, q * 2, q * 3],
+      };
     }
   }
 
   for (const seg of path.segments) {
     if (seg.type === "M") {
       cursor = seg.to;
+      gradeIdxSet.add(pts.length);
       pts.push(cursor);
     } else if (seg.type === "L") {
       cursor = seg.to;
+      gradeIdxSet.add(pts.length);
       pts.push(cursor);
     } else if (seg.type === "A") {
       if (
@@ -152,16 +169,25 @@ function samplePathFixedVertices(path: VectorPath): Point2D[] {
         seg.endAngle !== undefined
       ) {
         const diff = seg.endAngle - seg.startAngle;
+        const midStep = Math.floor(FIXED_ARC_STEPS / 2); // Exact arc midpoint (e.g. CF Waist [1] & CF Hem [2])
         for (let i = 1; i <= FIXED_ARC_STEPS; i++) {
           const a = seg.startAngle + (diff * i) / FIXED_ARC_STEPS;
+          if (i === midStep || i === FIXED_ARC_STEPS) {
+            gradeIdxSet.add(pts.length);
+          }
           pts.push(polarPoint(seg.center, seg.radius, a));
         }
       } else {
+        gradeIdxSet.add(pts.length);
         pts.push(seg.to);
       }
       cursor = seg.to;
     } else if (seg.type === "C") {
+      const midStep = Math.floor(FIXED_BEZIER_STEPS / 2);
       for (let i = 1; i <= FIXED_BEZIER_STEPS; i++) {
+        if (i === midStep || i === FIXED_BEZIER_STEPS) {
+          gradeIdxSet.add(pts.length);
+        }
         pts.push(
           evalCubicBezier(cursor, seg.cp1, seg.cp2, seg.to, i / FIXED_BEZIER_STEPS)
         );
@@ -175,11 +201,17 @@ function samplePathFixedVertices(path: VectorPath): Point2D[] {
     const first = pts[0];
     const last = pts[pts.length - 1];
     if (Math.hypot(last.x - first.x, last.y - first.y) < 0.05) {
+      gradeIdxSet.delete(pts.length - 1);
       pts.pop();
     }
   }
 
-  return pts;
+  return {
+    vertices: pts,
+    gradePointIndices: Array.from(gradeIdxSet)
+      .filter((idx) => idx >= 0 && idx < pts.length)
+      .sort((a, b) => a - b),
+  };
 }
 
 /* ==================== Low-Level R12 (AC1009) Entity Emitters ==================== */
@@ -367,31 +399,44 @@ function buildPieceBlock(
   const unitScale = unit === "cm" ? 0.1 : 1;
   const sizeColor = isMultiSize ? SIZE_ACI_COLORS[size] : 7;
 
-  // 1. Cut Paths:
+  // 1. Cut Paths + Exact-Match Layer 2 Grade/Turn Points on Cut Boundary:
   //    - Primary outer perimeter -> Layer 1 (ONLY ONE closed POLYLINE on Layer 1!)
   //    - Secondary inner cutout (e.g. 360° waist hole) -> Layer 11 (Internal Cutout)
   //      so Gerber AccuMark NEVER splits the inner waist hole into a separate floating piece!
+  //    - Every structural corner AND arc midpoint (CF Waist [1], CF Hem [2], WB Top/Bot Mid)
+  //      receives an exact-coordinate Layer 2 Grade Point matching the POLYLINE vertex 1:1.
   piece.cutPaths.forEach((cp, idx) => {
-    const verts = samplePathFixedVertices(cp).map(mapPt);
+    const { vertices, gradePointIndices } = samplePathWithGradePoints(cp);
+    const mappedVerts = vertices.map(mapPt);
     const layer = idx === 0 ? AAMA_DXF_LAYERS.CUT : AAMA_DXF_LAYERS.CUTOUT;
-    out.push(...emitPolylineR12(layer, verts, cp.closed, unit, sizeColor, "CONTINUOUS"));
+    out.push(
+      ...emitPolylineR12(layer, mappedVerts, cp.closed, unit, sizeColor, "CONTINUOUS")
+    );
     count++;
+
+    for (const gIdx of gradePointIndices) {
+      out.push(
+        ...emitPointR12(
+          AAMA_DXF_LAYERS.GRADE_POINT,
+          mappedVerts[gIdx],
+          unit,
+          sizeColor
+        )
+      );
+      count++;
+    }
   });
 
-  // 2. Grade / Turn Points on Layer 2 (matching 1-to-1 across all sizes S, M, L, XL)
-  for (const kp of piece.keyPoints) {
-    out.push(...emitPointR12(AAMA_DXF_LAYERS.GRADE_POINT, mapPt(kp.point), unit, sizeColor));
-    count++;
-  }
-
-  // 3. Seam / Sew Lines on Layer 14
+  // 2. Seam / Sew Lines on Layer 14 + Exact-Match Layer 2 Grade Points on Sew Boundary
+  //    so "Swap Sew/Cut" in Gerber AccuMark retains 100% of S-M-L-XL grading on both Skirt & Waistband!
   if (options.includeSeamLines) {
     for (const sp of piece.sewPaths) {
-      const verts = samplePathFixedVertices(sp).map(mapPt);
+      const { vertices, gradePointIndices } = samplePathWithGradePoints(sp);
+      const mappedVerts = vertices.map(mapPt);
       out.push(
         ...emitPolylineR12(
           AAMA_DXF_LAYERS.SEW,
-          verts,
+          mappedVerts,
           sp.closed,
           unit,
           sizeColor,
@@ -399,10 +444,23 @@ function buildPieceBlock(
         )
       );
       count++;
+
+      for (const gIdx of gradePointIndices) {
+        out.push(
+          ...emitPointR12(
+            AAMA_DXF_LAYERS.GRADE_POINT,
+            mappedVerts[gIdx],
+            unit,
+            sizeColor
+          )
+        );
+        count++;
+      }
     }
   }
 
-  // 4. Notches on Layer 4 (short slit LINE from cut edge inward)
+  // 3. Notches on Layer 4 (short slit LINE starting exactly on Cut boundary + optional Sew notch)
+  //    Includes CF Waist [1] and CF Hem [2] notches to anchor arc midpoints against distortion!
   if (options.includeNotches) {
     for (const notch of piece.notches) {
       const origin = notch.cutPoint ?? notch.point;
@@ -424,7 +482,7 @@ function buildPieceBlock(
     }
   }
 
-  // 5. Grainline on Layer 7 (EXACTLY ONE straight LINE per AAMA spec; Gerber auto-draws arrowheads)
+  // 4. Grainline on Layer 7 (EXACTLY ONE straight LINE per AAMA spec; Gerber auto-draws arrowheads)
   if (options.includeGrainlines) {
     out.push(
       ...emitLineR12(
@@ -439,9 +497,10 @@ function buildPieceBlock(
     count++;
   }
 
-  // 6. Internal Reference Lines on Layer 8 (Centerline, Zipper slit)
+  // 5. Internal Reference Lines on Layer 8 (Centerline, Zipper slit)
   for (const ip of piece.internalPaths) {
-    const verts = samplePathFixedVertices(ip).map(mapPt);
+    const { vertices } = samplePathWithGradePoints(ip);
+    const verts = vertices.map(mapPt);
     if (verts.length === 2) {
       out.push(
         ...emitLineR12(AAMA_DXF_LAYERS.INTERNAL, verts[0], verts[1], unit, 8, "DASHED")

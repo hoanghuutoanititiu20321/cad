@@ -538,7 +538,7 @@ function buildWaistbandPiece(
     const yTop = roundMm(anchorTopY);
     const yBot = roundMm(anchorTopY + heightMm);
 
-    // Sew rectangle
+    // Sew rectangle (6 explicit vertices including Top-Mid & Bot-Mid for symmetric AAMA grading)
     sewPaths.push({
       id: "wb-sew-straight",
       kind: "sew",
@@ -546,14 +546,16 @@ function buildWaistbandPiece(
       label: "Đường may bản lưng thẳng (Straight Waistband Sew)",
       segments: [
         { type: "M", to: pt(-halfW, yTop) },
+        { type: "L", to: pt(0, yTop) },
         { type: "L", to: pt(halfW, yTop) },
         { type: "L", to: pt(halfW, yBot) },
+        { type: "L", to: pt(0, yBot) },
         { type: "L", to: pt(-halfW, yBot) },
         { type: "Z" },
       ],
     });
 
-    // Cut rectangle (+ seam allowance all around)
+    // Cut rectangle (+ seam allowance all around, matching 6-vertex topology 1:1 with sew path)
     cutPaths.push({
       id: "wb-cut-straight",
       kind: "cut",
@@ -561,8 +563,10 @@ function buildWaistbandPiece(
       label: "Đường cắt bản lưng thẳng (Straight Waistband Cut)",
       segments: [
         { type: "M", to: pt(-halfW - saMm, yTop - saMm) },
+        { type: "L", to: pt(0, yTop - saMm) },
         { type: "L", to: pt(halfW + saMm, yTop - saMm) },
         { type: "L", to: pt(halfW + saMm, yBot + saMm) },
+        { type: "L", to: pt(0, yBot + saMm) },
         { type: "L", to: pt(-halfW - saMm, yBot + saMm) },
         { type: "Z" },
       ],

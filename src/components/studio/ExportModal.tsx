@@ -59,9 +59,9 @@ const FORMAT_OPTIONS: Array<{
 }> = [
   {
     id: "dxf",
-    title: "AAMA / ASTM DXF",
-    subtitle: "Gerber AccuMark • Optitex • CLO3D (Layer 1, 4, 7, 8, 11)",
-    badge: ".DXF 1:1",
+    title: "AAMA / ASTM DXF (Lồng size)",
+    subtitle: "Gerber AccuMark • Optitex • CLO3D (BLOCKS + POLYLINE đồng bộ đỉnh)",
+    badge: "AAMA .DXF",
     icon: FileCode2,
   },
   {
@@ -88,11 +88,13 @@ const FORMAT_OPTIONS: Array<{
 ];
 
 const AAMA_LAYERS = [
-  { code: "Layer 1", name: "Đường cắt (Cut)", color: "#0F172A" },
-  { code: "Layer 4", name: "Đường may (Seam)", color: "#4F46E5" },
-  { code: "Layer 7", name: "Dấu bấm (Notches)", color: "#7C3AED" },
-  { code: "Layer 8", name: "Canh sợi (Grain)", color: "#0F766E" },
-  { code: "Layer 11", name: "Chú thích (Text)", color: "#475569" },
+  { code: "Layer 1", name: "Đường cắt & Piece/Size (Cut)", color: "#0F172A" },
+  { code: "Layer 2", name: "Điểm nhảy size (Grade Points)", color: "#D97706" },
+  { code: "Layer 4", name: "Dấu bấm định vị (Notches)", color: "#7C3AED" },
+  { code: "Layer 7", name: "Đường canh sợi (Grainline)", color: "#0F766E" },
+  { code: "Layer 11", name: "Lỗ khoét trong (Cutout 360°)", color: "#E11D48" },
+  { code: "Layer 14", name: "Đường may (Sew Line)", color: "#4F46E5" },
+  { code: "Layer 15", name: "Chú thích mảnh (Annotation)", color: "#475569" },
 ];
 
 export function ExportModal({
@@ -516,7 +518,7 @@ export function ExportModal({
                         onChange={(e) => setIncludeSeamLines(e.target.checked)}
                         className="size-3.5 rounded accent-[#4F46E5]"
                       />
-                      Đường may (Layer 4)
+                      Đường may (Layer 14)
                     </label>
                     <label className="inline-flex items-center gap-1.5 cursor-pointer">
                       <input

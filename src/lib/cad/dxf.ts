@@ -1,12 +1,6 @@
 import {
-  Colors,
-  DxfWriter,
-  Units,
-  point3d,
-} from "@tarikjabiri/dxf";
-import {
   evalCubicBezier,
-  radToDeg,
+  polarPoint,
   roundMm,
 } from "./math";
 import type {
@@ -20,7 +14,7 @@ import type {
 export type DxfUnit = "mm" | "cm";
 
 export interface DxfExportOptions {
-  /** Which sizes to include (1 size = single export, multiple = nested export in 1 file) */
+  /** Which sizes to include (1 size = single piece, multiple = AAMA graded nested blocks) */
   sizes: SizeCode[];
   /** Export unit (1:1 true scale in millimeters or centimeters) */
   unit?: DxfUnit;
@@ -29,7 +23,7 @@ export interface DxfExportOptions {
   includeNotches: boolean;
   includeAnnotations: boolean;
   templateName: string;
-  /** Legacy compatibility option */
+  /** Legacy compatibility options */
   mode?: "nested" | "base";
   visibleSizes?: SizeCode[];
 }
@@ -44,34 +38,43 @@ export interface DxfExportResult {
 }
 
 /**
- * Standard Garment Industry AAMA / ASTM Layer Definitions
- * Compatible with Gerber AccuMark, Optitex PDS, CLO3D, and AutoCAD:
- * - Layer 1:  Cut Line (Đường cắt - nét liền)
- * - Layer 4:  Seam / Sew Line (Đường may - nét đứt)
- * - Layer 7:  Notches (Dấu bấm)
- * - Layer 8:  Grainline (Đường canh sợi)
- * - Layer 11: Text Annotations (Tên mảnh, size, số lượng cắt x1/x2)
+ * Official AAMA / ASTM D6673 Garment CAD DXF Layer Standard
+ * Recognized natively by Gerber AccuMark PDS, Optitex PDS, CLO3D, and Lectra:
+ * - Layer 1:  Outer Cut Boundary (1 closed POLYLINE per piece) + AAMA Piece/Size metadata TEXT
+ * - Layer 2:  Turn / Grade Points (POINT entities for grading correspondence)
+ * - Layer 4:  Notches (LINE slit notches)
+ * - Layer 7:  Grainline (single straight LINE — CAD systems auto-render grain arrows)
+ * - Layer 8:  Internal Reference Lines (centerline, zipper slit, fold line)
+ * - Layer 11: Internal Cutouts (e.g. inner waist hole on 360° single-piece circle skirt)
+ * - Layer 14: Sew / Seam Lines (internal stitched boundary)
+ * - Layer 15: Piece Annotations / Display Text
  */
-export const GARMENT_DXF_LAYERS = {
+export const AAMA_DXF_LAYERS = {
   CUT: "1",
-  SEAM: "4",
-  NOTCH: "7",
-  GRAINLINE: "8",
-  TEXT: "11",
+  GRADE_POINT: "2",
+  NOTCH: "4",
+  GRAINLINE: "7",
+  INTERNAL: "8",
+  CUTOUT: "11",
+  SEW: "14",
+  ANNOTATION: "15",
 } as const;
 
 const SIZE_ACI_COLORS: Record<SizeCode, number> = {
-  S: Colors.Green, // 3
-  M: Colors.Blue, // 5
-  L: 30, // Orange/Amber
-  XL: Colors.Red, // 1
+  S: 3, // Green
+  M: 5, // Blue
+  L: 30, // Orange
+  XL: 1, // Red
 };
 
-function normalizeDeg360(deg: number): number {
-  let d = deg % 360;
-  if (d < 0) d += 360;
-  return Math.round((d + Number.EPSILON) * 1000) / 1000;
-}
+/**
+ * Fixed vertex count for arc discretization so every graded size (S, M, L, XL)
+ * has the EXACT same number of POLYLINE vertices in identical order — required by
+ * Gerber AccuMark & Optitex to merge size BLOCKs into a single nested Graded Piece!
+ */
+const FIXED_ARC_STEPS = 48;
+const FIXED_FULL_CIRCLE_STEPS = 72;
+const FIXED_BEZIER_STEPS = 24;
 
 function toAsciiSafe(text: string): string {
   return text
@@ -88,292 +91,427 @@ function roundUnit(val: number, unit: DxfUnit): number {
   return Math.round((val + Number.EPSILON) * factor) / factor;
 }
 
-function makeCoordinateMapper(offsetXMm: number, maxYMm: number, unit: DxfUnit) {
-  const scale = unit === "cm" ? 0.1 : 1;
-  return (p: Point2D) =>
-    point3d(
-      roundUnit((p.x - offsetXMm) * scale, unit),
-      roundUnit((maxYMm - p.y) * scale, unit),
-      0
-    );
+function fmt(val: number, unit: DxfUnit): string {
+  return roundUnit(val, unit).toFixed(unit === "cm" ? 3 : 2);
 }
 
-function emitVectorPath(
-  dxf: DxfWriter,
-  path: VectorPath,
-  layerName: string,
-  colorNumber: number | undefined,
-  lineType: string | undefined,
-  unit: DxfUnit,
-  mapPt: (p: Point2D) => ReturnType<typeof point3d>
-): number {
-  const unitScale = unit === "cm" ? 0.1 : 1;
-  const opts = {
-    layerName,
-    ...(colorNumber !== undefined ? { colorNumber } : {}),
-    ...(lineType ? { lineType } : {}),
-  };
+function makeCoordinateMapper(
+  offsetXMm: number,
+  maxYMm: number,
+  unit: DxfUnit
+): (p: Point2D) => Point2D {
+  const scale = unit === "cm" ? 0.1 : 1;
+  return (p: Point2D): Point2D => ({
+    x: roundUnit((p.x - offsetXMm) * scale, unit),
+    y: roundUnit((maxYMm - p.y) * scale, unit),
+  });
+}
 
-  let count = 0;
+/**
+ * Discretize a VectorPath into a deterministic, fixed-count vertex array.
+ * Crucial for AAMA Graded DXF: S, M, L, XL ALWAYS produce the exact same vertex count!
+ */
+function samplePathFixedVertices(path: VectorPath): Point2D[] {
+  const pts: Point2D[] = [];
   let cursor: Point2D = { x: 0, y: 0 };
-  let startPt: Point2D = { x: 0, y: 0 };
+
   const hasFullCircle = path.segments.some(
     (s) => s.type === "A" && s.fullCircle
   );
 
+  if (hasFullCircle) {
+    const circleSeg = path.segments.find(
+      (s) => s.type === "A" && s.fullCircle && s.center && s.radius !== undefined
+    );
+    if (
+      circleSeg &&
+      circleSeg.type === "A" &&
+      circleSeg.center &&
+      circleSeg.radius !== undefined
+    ) {
+      for (let i = 0; i < FIXED_FULL_CIRCLE_STEPS; i++) {
+        const angle = (2 * Math.PI * i) / FIXED_FULL_CIRCLE_STEPS;
+        pts.push(polarPoint(circleSeg.center, circleSeg.radius, angle));
+      }
+      return pts;
+    }
+  }
+
   for (const seg of path.segments) {
     if (seg.type === "M") {
       cursor = seg.to;
-      startPt = seg.to;
+      pts.push(cursor);
     } else if (seg.type === "L") {
-      if (Math.hypot(seg.to.x - cursor.x, seg.to.y - cursor.y) > 0.01) {
-        dxf.addLine(mapPt(cursor), mapPt(seg.to), opts);
-        count++;
-      }
       cursor = seg.to;
+      pts.push(cursor);
     } else if (seg.type === "A") {
-      if (seg.fullCircle && seg.center && seg.radius) {
-        dxf.addCircle(
-          mapPt(seg.center),
-          roundUnit(seg.radius * unitScale, unit),
-          opts
-        );
-        count++;
-      } else if (
+      if (
         seg.center &&
         seg.radius !== undefined &&
         seg.startAngle !== undefined &&
         seg.endAngle !== undefined
       ) {
-        const isSecondHalfOfCircle =
-          hasFullCircle &&
-          Math.abs(seg.startAngle - Math.PI) < 1e-6 &&
-          Math.abs(seg.endAngle - Math.PI * 2) < 1e-6;
-
-        if (!isSecondHalfOfCircle) {
-          // Flipping Y -> -Y reverses angle sign & sweep direction; DXF ARC always sweeps CCW
-          const a1 = radToDeg(seg.startAngle);
-          const a2 = radToDeg(seg.endAngle);
-          const dxfStart = normalizeDeg360(seg.sweep === 1 ? -a2 : -a1);
-          const dxfEnd = normalizeDeg360(seg.sweep === 1 ? -a1 : -a2);
-          dxf.addArc(
-            mapPt(seg.center),
-            roundUnit(seg.radius * unitScale, unit),
-            dxfStart,
-            dxfEnd,
-            opts
-          );
-          count++;
+        const diff = seg.endAngle - seg.startAngle;
+        for (let i = 1; i <= FIXED_ARC_STEPS; i++) {
+          const a = seg.startAngle + (diff * i) / FIXED_ARC_STEPS;
+          pts.push(polarPoint(seg.center, seg.radius, a));
         }
       } else {
-        dxf.addLine(mapPt(cursor), mapPt(seg.to), opts);
-        count++;
+        pts.push(seg.to);
       }
       cursor = seg.to;
     } else if (seg.type === "C") {
-      const steps = 32;
-      let prev = cursor;
-      for (let i = 1; i <= steps; i++) {
-        const curr = evalCubicBezier(cursor, seg.cp1, seg.cp2, seg.to, i / steps);
-        dxf.addLine(mapPt(prev), mapPt(curr), opts);
-        count++;
-        prev = curr;
+      for (let i = 1; i <= FIXED_BEZIER_STEPS; i++) {
+        pts.push(
+          evalCubicBezier(cursor, seg.cp1, seg.cp2, seg.to, i / FIXED_BEZIER_STEPS)
+        );
       }
       cursor = seg.to;
-    } else if (seg.type === "Z") {
-      if (Math.hypot(startPt.x - cursor.x, startPt.y - cursor.y) > 0.05) {
-        dxf.addLine(mapPt(cursor), mapPt(startPt), opts);
-        count++;
-      }
-      cursor = startPt;
     }
   }
 
-  return count;
+  // For closed polylines, avoid duplicating the closing vertex (flag 70=1 closes it cleanly)
+  if (path.closed && pts.length > 2) {
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    if (Math.hypot(last.x - first.x, last.y - first.y) < 0.05) {
+      pts.pop();
+    }
+  }
+
+  return pts;
 }
 
-function emitPiece(
-  dxf: DxfWriter,
-  piece: PatternPiece,
-  size: SizeCode,
-  isPrimaryForMarkings: boolean,
-  isMultiSize: boolean,
-  exportedSizesLabel: string,
-  unit: DxfUnit,
-  options: DxfExportOptions,
-  mapPt: (p: Point2D) => ReturnType<typeof point3d>
-): number {
-  let count = 0;
-  const unitScale = unit === "cm" ? 0.1 : 1;
-  const sizeColor = isMultiSize ? SIZE_ACI_COLORS[size] : Colors.White;
+/* ==================== Low-Level R12 (AC1009) Entity Emitters ==================== */
 
-  // Layer 1: Cut Lines (Đường cắt — Nét liền)
-  for (const path of piece.cutPaths) {
-    count += emitVectorPath(
-      dxf,
-      path,
-      GARMENT_DXF_LAYERS.CUT,
-      sizeColor,
-      "Continuous",
-      unit,
-      mapPt
+function emitPolylineR12(
+  layer: string,
+  points: Point2D[],
+  closed: boolean,
+  unit: DxfUnit,
+  color?: number,
+  linetype?: string
+): string[] {
+  if (points.length < 2) return [];
+  const out: string[] = [
+    "0",
+    "POLYLINE",
+    "8",
+    layer,
+    ...(linetype ? ["6", linetype] : []),
+    ...(color !== undefined ? ["62", String(color)] : []),
+    "66",
+    "1",
+    "10",
+    "0.00",
+    "20",
+    "0.00",
+    "30",
+    "0.00",
+    "70",
+    closed ? "1" : "0",
+  ];
+
+  for (const p of points) {
+    out.push(
+      "0",
+      "VERTEX",
+      "8",
+      layer,
+      "10",
+      fmt(p.x, unit),
+      "20",
+      fmt(p.y, unit),
+      "30",
+      "0.00"
     );
   }
 
-  // Layer 4: Seam Lines (Đường may — Nét đứt)
+  out.push("0", "SEQEND", "8", layer);
+  return out;
+}
+
+function emitLineR12(
+  layer: string,
+  a: Point2D,
+  b: Point2D,
+  unit: DxfUnit,
+  color?: number,
+  linetype?: string
+): string[] {
+  return [
+    "0",
+    "LINE",
+    "8",
+    layer,
+    ...(linetype ? ["6", linetype] : []),
+    ...(color !== undefined ? ["62", String(color)] : []),
+    "10",
+    fmt(a.x, unit),
+    "20",
+    fmt(a.y, unit),
+    "30",
+    "0.00",
+    "11",
+    fmt(b.x, unit),
+    "21",
+    fmt(b.y, unit),
+    "31",
+    "0.00",
+  ];
+}
+
+function emitPointR12(
+  layer: string,
+  p: Point2D,
+  unit: DxfUnit,
+  color?: number
+): string[] {
+  return [
+    "0",
+    "POINT",
+    "8",
+    layer,
+    ...(color !== undefined ? ["62", String(color)] : []),
+    "10",
+    fmt(p.x, unit),
+    "20",
+    fmt(p.y, unit),
+    "30",
+    "0.00",
+  ];
+}
+
+function emitTextR12(
+  layer: string,
+  pos: Point2D,
+  height: number,
+  value: string,
+  unit: DxfUnit,
+  color?: number
+): string[] {
+  return [
+    "0",
+    "TEXT",
+    "8",
+    layer,
+    ...(color !== undefined ? ["62", String(color)] : []),
+    "10",
+    fmt(pos.x, unit),
+    "20",
+    fmt(pos.y, unit),
+    "30",
+    "0.00",
+    "40",
+    fmt(height, unit),
+    "1",
+    toAsciiSafe(value),
+  ];
+}
+
+function emitInsertR12(
+  blockName: string,
+  layer = AAMA_DXF_LAYERS.CUT
+): string[] {
+  return [
+    "0",
+    "INSERT",
+    "8",
+    layer,
+    "2",
+    blockName,
+    "10",
+    "0.00",
+    "20",
+    "0.00",
+    "30",
+    "0.00",
+    "41",
+    "1.0",
+    "42",
+    "1.0",
+    "43",
+    "1.0",
+    "50",
+    "0.0",
+  ];
+}
+
+function buildPieceBlock(
+  blockName: string,
+  piece: PatternPiece,
+  size: SizeCode,
+  isMultiSize: boolean,
+  unit: DxfUnit,
+  options: DxfExportOptions,
+  mapPt: (p: Point2D) => Point2D
+): { lines: string[]; entityCount: number } {
+  const out: string[] = [
+    "0",
+    "BLOCK",
+    "8",
+    "0",
+    "2",
+    blockName,
+    "70",
+    "0",
+    "10",
+    "0.00",
+    "20",
+    "0.00",
+    "30",
+    "0.00",
+  ];
+
+  let count = 0;
+  const unitScale = unit === "cm" ? 0.1 : 1;
+  const sizeColor = isMultiSize ? SIZE_ACI_COLORS[size] : 7;
+
+  // 1. Cut Paths:
+  //    - Primary outer perimeter -> Layer 1 (ONLY ONE closed POLYLINE on Layer 1!)
+  //    - Secondary inner cutout (e.g. 360° waist hole) -> Layer 11 (Internal Cutout)
+  //      so Gerber AccuMark NEVER splits the inner waist hole into a separate floating piece!
+  piece.cutPaths.forEach((cp, idx) => {
+    const verts = samplePathFixedVertices(cp).map(mapPt);
+    const layer = idx === 0 ? AAMA_DXF_LAYERS.CUT : AAMA_DXF_LAYERS.CUTOUT;
+    out.push(...emitPolylineR12(layer, verts, cp.closed, unit, sizeColor, "CONTINUOUS"));
+    count++;
+  });
+
+  // 2. Grade / Turn Points on Layer 2 (matching 1-to-1 across all sizes S, M, L, XL)
+  for (const kp of piece.keyPoints) {
+    out.push(...emitPointR12(AAMA_DXF_LAYERS.GRADE_POINT, mapPt(kp.point), unit, sizeColor));
+    count++;
+  }
+
+  // 3. Seam / Sew Lines on Layer 14
   if (options.includeSeamLines) {
-    for (const path of piece.sewPaths) {
-      count += emitVectorPath(
-        dxf,
-        path,
-        GARMENT_DXF_LAYERS.SEAM,
-        isMultiSize ? sizeColor : Colors.Blue,
-        "DASHED",
-        unit,
-        mapPt
+    for (const sp of piece.sewPaths) {
+      const verts = samplePathFixedVertices(sp).map(mapPt);
+      out.push(
+        ...emitPolylineR12(
+          AAMA_DXF_LAYERS.SEW,
+          verts,
+          sp.closed,
+          unit,
+          sizeColor,
+          "DASHED"
+        )
       );
+      count++;
     }
   }
 
-  // Internal lines (zipper slit, center fold reference) on Layer 4
-  if (isPrimaryForMarkings) {
-    for (const path of piece.internalPaths) {
-      count += emitVectorPath(
-        dxf,
-        path,
-        GARMENT_DXF_LAYERS.SEAM,
-        Colors.Blue,
-        "DASHED",
-        unit,
-        mapPt
-      );
-    }
-  }
-
-  // Layer 7: Notches (Dấu bấm)
-  if (options.includeNotches && isPrimaryForMarkings) {
+  // 4. Notches on Layer 4 (short slit LINE from cut edge inward)
+  if (options.includeNotches) {
     for (const notch of piece.notches) {
       const origin = notch.cutPoint ?? notch.point;
       const tip: Point2D = {
         x: roundMm(origin.x + Math.cos(notch.angle) * notch.depth),
         y: roundMm(origin.y + Math.sin(notch.angle) * notch.depth),
       };
-      dxf.addLine(mapPt(origin), mapPt(tip), {
-        layerName: GARMENT_DXF_LAYERS.NOTCH,
-        colorNumber: Colors.Magenta,
-      });
+      out.push(
+        ...emitLineR12(
+          AAMA_DXF_LAYERS.NOTCH,
+          mapPt(origin),
+          mapPt(tip),
+          unit,
+          6,
+          "CONTINUOUS"
+        )
+      );
       count++;
-
-      if (notch.style === "T") {
-        const perp = notch.angle + Math.PI / 2;
-        const tA: Point2D = {
-          x: roundMm(tip.x + Math.cos(perp) * 3.5),
-          y: roundMm(tip.y + Math.sin(perp) * 3.5),
-        };
-        const tB: Point2D = {
-          x: roundMm(tip.x - Math.cos(perp) * 3.5),
-          y: roundMm(tip.y - Math.sin(perp) * 3.5),
-        };
-        dxf.addLine(mapPt(tA), mapPt(tB), {
-          layerName: GARMENT_DXF_LAYERS.NOTCH,
-          colorNumber: Colors.Magenta,
-        });
-        count++;
-      }
     }
   }
 
-  // Layer 8: Grainline (Đường canh sợi)
-  if (options.includeGrainlines && isPrimaryForMarkings) {
-    const g = piece.grainline;
-    const grainOpts = {
-      layerName: GARMENT_DXF_LAYERS.GRAINLINE,
-      colorNumber: Colors.Cyan,
-    };
-    dxf.addLine(mapPt(g.start), mapPt(g.end), grainOpts);
+  // 5. Grainline on Layer 7 (EXACTLY ONE straight LINE per AAMA spec; Gerber auto-draws arrowheads)
+  if (options.includeGrainlines) {
+    out.push(
+      ...emitLineR12(
+        AAMA_DXF_LAYERS.GRAINLINE,
+        mapPt(piece.grainline.start),
+        mapPt(piece.grainline.end),
+        unit,
+        4,
+        "CONTINUOUS"
+      )
+    );
     count++;
-
-    const angle = Math.atan2(g.end.y - g.start.y, g.end.x - g.start.x);
-    const arrowLen = 10;
-    const spread = 0.42;
-
-    const s1 = {
-      x: g.start.x + Math.cos(angle + spread) * arrowLen,
-      y: g.start.y + Math.sin(angle + spread) * arrowLen,
-    };
-    const s2 = {
-      x: g.start.x + Math.cos(angle - spread) * arrowLen,
-      y: g.start.y + Math.sin(angle - spread) * arrowLen,
-    };
-    dxf.addLine(mapPt(g.start), mapPt(s1), grainOpts);
-    dxf.addLine(mapPt(g.start), mapPt(s2), grainOpts);
-
-    const e1 = {
-      x: g.end.x - Math.cos(angle + spread) * arrowLen,
-      y: g.end.y - Math.sin(angle + spread) * arrowLen,
-    };
-    const e2 = {
-      x: g.end.x - Math.cos(angle - spread) * arrowLen,
-      y: g.end.y - Math.sin(angle - spread) * arrowLen,
-    };
-    dxf.addLine(mapPt(g.end), mapPt(e1), grainOpts);
-    dxf.addLine(mapPt(g.end), mapPt(e2), grainOpts);
-    count += 4;
   }
 
-  // Layer 11: Text Annotations (Tên mảnh, size, số lượng cắt x1/x2)
+  // 6. Internal Reference Lines on Layer 8 (Centerline, Zipper slit)
+  for (const ip of piece.internalPaths) {
+    const verts = samplePathFixedVertices(ip).map(mapPt);
+    if (verts.length === 2) {
+      out.push(
+        ...emitLineR12(AAMA_DXF_LAYERS.INTERNAL, verts[0], verts[1], unit, 8, "DASHED")
+      );
+    } else {
+      out.push(
+        ...emitPolylineR12(AAMA_DXF_LAYERS.INTERNAL, verts, ip.closed, unit, 8, "DASHED")
+      );
+    }
+    count++;
+  }
+
+  // 7. AAMA Required Metadata TEXT on Layer 1 (THIS is what tells Gerber AccuMark / Optitex / CLO3D
+  //    to merge S, M, L, XL blocks with the same "Piece Name" into ONE Nested Graded Piece!)
+  const labelAnchor = mapPt(piece.labelAnchor);
+  const textH = roundUnit(8 * unitScale, unit);
+  const lineStep = roundUnit(12 * unitScale, unit);
+
+  out.push(
+    ...emitTextR12(
+      AAMA_DXF_LAYERS.CUT,
+      { x: labelAnchor.x, y: labelAnchor.y + lineStep },
+      textH,
+      `Piece Name: ${piece.code}`,
+      unit,
+      7
+    ),
+    ...emitTextR12(
+      AAMA_DXF_LAYERS.CUT,
+      { x: labelAnchor.x, y: labelAnchor.y },
+      textH,
+      `Size: ${size}`,
+      unit,
+      7
+    ),
+    ...emitTextR12(
+      AAMA_DXF_LAYERS.CUT,
+      { x: labelAnchor.x, y: labelAnchor.y - lineStep },
+      textH,
+      `Quantity: ${piece.cutQuantity}`,
+      unit,
+      7
+    )
+  );
+  count += 3;
+
+  // 8. Human-readable Annotation on Layer 15
   if (options.includeAnnotations) {
-    if (isPrimaryForMarkings) {
-      const labelBase = mapPt(piece.labelAnchor);
-      const hTitle = roundUnit(10 * unitScale, unit);
-      const hSub = roundUnit(7.5 * unitScale, unit);
-      const lineGap = roundUnit(13 * unitScale, unit);
-
-      dxf.addText(
-        point3d(labelBase.x - roundUnit(55 * unitScale, unit), labelBase.y + lineGap, 0),
-        hTitle,
-        toAsciiSafe(`${piece.code} - ${piece.englishName.toUpperCase()}`),
-        { layerName: GARMENT_DXF_LAYERS.TEXT, colorNumber: Colors.White }
-      );
-      dxf.addText(
-        point3d(labelBase.x - roundUnit(55 * unitScale, unit), labelBase.y, 0),
-        hSub,
-        toAsciiSafe(`CUT x${piece.cutQuantity} (${piece.material.toUpperCase()}) | SIZE: ${exportedSizesLabel}`),
-        { layerName: GARMENT_DXF_LAYERS.TEXT, colorNumber: Colors.White }
-      );
-      count += 2;
-    }
-
-    // Individual size tag on contour when nested multi-size
-    if (isMultiSize) {
-      const tagKp =
-        piece.id === "skirt-panel"
-          ? piece.keyPoints.find((k) => k.code === "P5") ?? piece.keyPoints[0]
-          : piece.keyPoints.find((k) => k.code === "W3") ?? piece.keyPoints[0];
-      if (tagKp) {
-        const p = mapPt(tagKp.point);
-        dxf.addText(
-          point3d(p.x + roundUnit(6 * unitScale, unit), p.y, 0),
-          roundUnit(6.5 * unitScale, unit),
-          size,
-          { layerName: GARMENT_DXF_LAYERS.TEXT, colorNumber: sizeColor }
-        );
-        count++;
-      }
-    }
+    out.push(
+      ...emitTextR12(
+        AAMA_DXF_LAYERS.ANNOTATION,
+        { x: labelAnchor.x, y: labelAnchor.y - lineStep * 2 },
+        roundUnit(7 * unitScale, unit),
+        `Annotation: ${piece.englishName} - CUT x${piece.cutQuantity}`,
+        unit,
+        7
+      )
+    );
+    count++;
   }
 
-  return count;
+  out.push("0", "ENDBLK", "8", "0");
+  return { lines: out, entityCount: count };
 }
 
 /**
- * Generate an industrial garment-standard DXF file via @tarikjabiri/dxf.
- * Layers strictly follow garment CAD convention:
- * - Layer 1:  Cut Line
- * - Layer 4:  Seam Line (DASHED)
- * - Layer 7:  Notches
- * - Layer 8:  Grainline
- * - Layer 11: Piece / Size / Cut Qty Text Annotations
+ * Generate an AAMA / ASTM D6673 compliant R12 (`AC1009`) DXF file.
+ * Uses BLOCKS + INSERT + fixed-vertex-count POLYLINEs + `Piece Name:` / `Size:` metadata
+ * so Gerber AccuMark PDS, Optitex, and CLO3D automatically group S-M-L-XL into nested
+ * Graded Pieces (1 piece per garment part with all graded sizes nested inside).
  */
 export function generatePatternDxf(
   grading: NestedGradingResult,
@@ -381,7 +519,6 @@ export function generatePatternDxf(
 ): DxfExportResult {
   const unit: DxfUnit = options.unit ?? "mm";
 
-  // Resolve sizes cleanly (supports both new `sizes` array and legacy `mode`/`visibleSizes`)
   let targetSizes: SizeCode[] = options.sizes;
   if (!targetSizes || targetSizes.length === 0) {
     targetSizes =
@@ -403,65 +540,247 @@ export function generatePatternDxf(
   const exportedSizes = effectiveEntries.map((e) => e.size);
   const isMultiSize = effectiveEntries.length > 1;
   const exportedSizesLabel = exportedSizes.join("-");
-
-  const dxf = new DxfWriter();
-  dxf.setUnits(unit === "cm" ? Units.Centimeters : Units.Millimeters);
-  dxf.setVariable("$MEASUREMENT", { 70: 1 }); // Metric system
-
-  // Line types
-  const dashLen = unit === "cm" ? 0.8 : 8.0;
-  const gapLen = unit === "cm" ? -0.4 : -4.0;
-  dxf.addLType("DASHED", "Dashed __ __ __", [dashLen, gapLen]);
-
-  // Standard Garment CAD Layers (1, 4, 7, 8, 11)
-  dxf.addLayer(GARMENT_DXF_LAYERS.CUT, Colors.White, "Continuous");
-  dxf.addLayer(GARMENT_DXF_LAYERS.SEAM, Colors.Blue, "DASHED");
-  dxf.addLayer(GARMENT_DXF_LAYERS.NOTCH, Colors.Magenta, "Continuous");
-  dxf.addLayer(GARMENT_DXF_LAYERS.GRAINLINE, Colors.Cyan, "Continuous");
-  dxf.addLayer(GARMENT_DXF_LAYERS.TEXT, Colors.White, "Continuous");
-
-  const bbox = grading.combinedBbox;
-  const padMm = 20;
-  const mapPt = makeCoordinateMapper(bbox.minX - padMm, bbox.maxY + padMm, unit);
-
-  // Set drawing extents accurately for immediate Zoom Extents in CAD viewers
-  const unitScale = unit === "cm" ? 0.1 : 1;
-  dxf.setVariable("$EXTMIN", { 10: 0, 20: 0, 30: 0 });
-  dxf.setVariable("$EXTMAX", {
-    10: roundUnit((bbox.width + padMm * 2) * unitScale, unit),
-    20: roundUnit((bbox.height + padMm * 2) * unitScale, unit),
-    30: 0,
-  });
-
-  let entityCount = 0;
-  const primarySize = exportedSizes.includes(grading.baseSize)
+  const sampleSize = exportedSizes.includes(grading.baseSize)
     ? grading.baseSize
     : exportedSizes[0];
 
-  for (const entry of effectiveEntries) {
-    const isPrimary = entry.size === primarySize;
-    for (const piece of entry.geometry.pieces) {
-      entityCount += emitPiece(
-        dxf,
+  const bbox = grading.combinedBbox;
+  const padMm = 25;
+  const mapPt = makeCoordinateMapper(bbox.minX - padMm, bbox.maxY + padMm, unit);
+  const unitScale = unit === "cm" ? 0.1 : 1;
+
+  const extMaxX = roundUnit((bbox.width + padMm * 2) * unitScale, unit);
+  const extMaxY = roundUnit((bbox.height + padMm * 2) * unitScale, unit);
+
+  // Build BLOCKS section (grouped by piece across all requested sizes) + INSERTs in ENTITIES
+  const blocksSection: string[] = [];
+  const insertEntities: string[] = [];
+  let entityCount = 0;
+
+  // AAMA File-Level Style & Grading Header Text in Model Space (Layer 1)
+  const headerTextH = roundUnit(10 * unitScale, unit);
+  const headerStep = roundUnit(15 * unitScale, unit);
+  const styleCode = toAsciiSafe(options.templateName)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  insertEntities.push(
+    ...emitTextR12(
+      AAMA_DXF_LAYERS.CUT,
+      { x: 0, y: extMaxY + headerStep * 3 },
+      headerTextH,
+      `Style Name: ${styleCode || "PATTERNCAD"}`,
+      unit,
+      7
+    ),
+    ...emitTextR12(
+      AAMA_DXF_LAYERS.CUT,
+      { x: 0, y: extMaxY + headerStep * 2 },
+      headerTextH,
+      `Author: PatternCAD Pro`,
+      unit,
+      7
+    ),
+    ...emitTextR12(
+      AAMA_DXF_LAYERS.CUT,
+      { x: 0, y: extMaxY + headerStep },
+      headerTextH,
+      `Sample Size: ${sampleSize}`,
+      unit,
+      7
+    ),
+    ...emitTextR12(
+      AAMA_DXF_LAYERS.CUT,
+      { x: 0, y: extMaxY },
+      headerTextH,
+      `Grading Rule Table: AAMA`,
+      unit,
+      7
+    )
+  );
+  entityCount += 4;
+
+  // Iterate piece-by-piece so all sizes of SKT-01 are grouped cleanly, then all sizes of WB-01
+  const pieceIds = effectiveEntries[0].geometry.pieces.map((p) => p.id);
+
+  for (const pieceId of pieceIds) {
+    for (const entry of effectiveEntries) {
+      const piece = entry.geometry.pieces.find((p) => p.id === pieceId);
+      if (!piece) continue;
+
+      const cleanCode = piece.code.replace(/[^A-Za-z0-9]/g, "");
+      const blockName = `${cleanCode}_${entry.size}`;
+
+      const built = buildPieceBlock(
+        blockName,
         piece,
         entry.size,
-        isPrimary,
         isMultiSize,
-        exportedSizesLabel,
         unit,
         options,
         mapPt
       );
+      blocksSection.push(...built.lines);
+      entityCount += built.entityCount;
+
+      // INSERT all sizes of the same piece at the exact same origin (0, 0) so they nest concentrically!
+      insertEntities.push(...emitInsertR12(blockName, AAMA_DXF_LAYERS.CUT));
+      entityCount++;
     }
   }
 
-  const content = dxf.stringify();
+  const layers = [
+    { name: "0", color: 7, linetype: "CONTINUOUS" },
+    { name: AAMA_DXF_LAYERS.CUT, color: 7, linetype: "CONTINUOUS" },
+    { name: AAMA_DXF_LAYERS.GRADE_POINT, color: 2, linetype: "CONTINUOUS" },
+    { name: AAMA_DXF_LAYERS.NOTCH, color: 6, linetype: "CONTINUOUS" },
+    { name: AAMA_DXF_LAYERS.GRAINLINE, color: 4, linetype: "CONTINUOUS" },
+    { name: AAMA_DXF_LAYERS.INTERNAL, color: 8, linetype: "DASHED" },
+    { name: AAMA_DXF_LAYERS.CUTOUT, color: 1, linetype: "CONTINUOUS" },
+    { name: AAMA_DXF_LAYERS.SEW, color: 5, linetype: "DASHED" },
+    { name: AAMA_DXF_LAYERS.ANNOTATION, color: 7, linetype: "CONTINUOUS" },
+  ];
+
+  const layerTable: string[] = [
+    "0",
+    "TABLE",
+    "2",
+    "LAYER",
+    "70",
+    String(layers.length),
+  ];
+  for (const l of layers) {
+    layerTable.push(
+      "0",
+      "LAYER",
+      "2",
+      l.name,
+      "70",
+      "0",
+      "62",
+      String(l.color),
+      "6",
+      l.linetype
+    );
+  }
+  layerTable.push("0", "ENDTAB");
+
+  const dashLen = unit === "cm" ? "0.8" : "8.0";
+  const gapLen = unit === "cm" ? "-0.4" : "-4.0";
+  const dashTotal = unit === "cm" ? "1.2" : "12.0";
+
+  const dxfLines: string[] = [
+    "999",
+    `PatternCAD Pro - AAMA/ASTM D6673 Graded DXF (${toAsciiSafe(options.templateName)})`,
+    "999",
+    `Format: AutoCAD R12 (AC1009) | Units: ${unit} (1:1) | Sizes: ${exportedSizesLabel}`,
+    "0",
+    "SECTION",
+    "2",
+    "HEADER",
+    "9",
+    "$ACADVER",
+    "1",
+    "AC1009",
+    "9",
+    "$INSUNITS",
+    "70",
+    unit === "cm" ? "5" : "4",
+    "9",
+    "$MEASUREMENT",
+    "70",
+    "1",
+    "9",
+    "$EXTMIN",
+    "10",
+    "0.00",
+    "20",
+    "0.00",
+    "30",
+    "0.00",
+    "9",
+    "$EXTMAX",
+    "10",
+    fmt(extMaxX, unit),
+    "20",
+    fmt(extMaxY + headerStep * 4, unit),
+    "30",
+    "0.00",
+    "0",
+    "ENDSEC",
+    "0",
+    "SECTION",
+    "2",
+    "TABLES",
+    "0",
+    "TABLE",
+    "2",
+    "LTYPE",
+    "70",
+    "2",
+    "0",
+    "LTYPE",
+    "2",
+    "CONTINUOUS",
+    "70",
+    "0",
+    "3",
+    "Solid line",
+    "72",
+    "65",
+    "73",
+    "0",
+    "40",
+    "0.0",
+    "0",
+    "LTYPE",
+    "2",
+    "DASHED",
+    "70",
+    "0",
+    "3",
+    "Dashed __ __ __",
+    "72",
+    "65",
+    "73",
+    "2",
+    "40",
+    dashTotal,
+    "49",
+    dashLen,
+    "49",
+    gapLen,
+    "0",
+    "ENDTAB",
+    ...layerTable,
+    "0",
+    "ENDSEC",
+    "0",
+    "SECTION",
+    "2",
+    "BLOCKS",
+    ...blocksSection,
+    "0",
+    "ENDSEC",
+    "0",
+    "SECTION",
+    "2",
+    "ENTITIES",
+    ...insertEntities,
+    "0",
+    "ENDSEC",
+    "0",
+    "EOF",
+  ];
+
+  const content = dxfLines.join("\r\n") + "\r\n";
   const slug = toAsciiSafe(options.templateName)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
-  const filename = `${slug || "pattern"}-${isMultiSize ? `nested-${exportedSizesLabel}` : `size-${exportedSizesLabel}`}-${unit}.dxf`;
+  const filename = `${slug || "pattern"}-${isMultiSize ? `aama-graded-${exportedSizesLabel}` : `aama-size-${exportedSizesLabel}`}-${unit}.dxf`;
 
   return {
     content,

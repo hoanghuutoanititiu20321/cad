@@ -10,6 +10,7 @@ import {
   DraftingCompass,
   LayoutGrid,
   PenTool,
+  Scissors,
 } from "lucide-react";
 import type {
   GradingOverrides,
@@ -39,7 +40,9 @@ import {
 import { ExportModal } from "./ExportModal";
 import { GarmentViewer3D } from "./GarmentViewer3D";
 import { InspectorPanel } from "./InspectorPanel";
+import { MarkerModal } from "./MarkerModal";
 import { ParameterPanel } from "./ParameterPanel";
+import { WorkOrderModal } from "./WorkOrderModal";
 import { cn } from "@/lib/utils";
 
 type StudioViewMode = "2d" | "split" | "3d";
@@ -77,6 +80,8 @@ export function CadStudio() {
   ]);
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [markerModalOpen, setMarkerModalOpen] = useState(false);
+  const [workOrderModalOpen, setWorkOrderModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState<StudioViewMode>("2d");
   const canvasRef = useRef<CadCanvasHandle>(null);
 
@@ -252,12 +257,23 @@ export function CadStudio() {
           </Link>
 
           <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setMarkerModalOpen(true)}
+            className="h-8 gap-1.5 border-emerald-300 bg-emerald-50/70 text-emerald-800 hover:bg-emerald-100/80 font-semibold"
+          >
+            <Scissors className="size-3.5" />
+            <span>Giác sơ đồ</span>
+          </Button>
+
+
+          <Button
             size="sm"
             onClick={() => setExportModalOpen(true)}
             className="h-8 gap-1.5"
           >
             <Download className="size-3.5" />
-            <span>Xuất file & Tech Pack</span>
+            <span>Export</span>
           </Button>
         </div>
       </header>
@@ -326,10 +342,20 @@ export function CadStudio() {
             selectedPieceId={selectedPieceId}
             onGradingOverridesChange={setGradingOverrides}
             onFocusPiece={handleFocusPiece}
+            onOpenMarkerModal={() => setMarkerModalOpen(true)}
             onOpenExportModal={() => setExportModalOpen(true)}
+            onOpenWorkOrderModal={() => setWorkOrderModalOpen(true)}
           />
         </div>
       </div>
+
+      {/* Automated True-Shape Marker Nesting & Cutting Print Modal */}
+      <MarkerModal
+        open={markerModalOpen}
+        onOpenChange={setMarkerModalOpen}
+        templateName={`${template.name} (${template.englishName})`}
+        grading={grading}
+      />
 
       {/* Industrial Export & Tech Pack Modal */}
       <ExportModal
@@ -341,6 +367,15 @@ export function CadStudio() {
         grading={grading}
         gradingOverrides={gradingOverrides}
         initialSizes={layers.nestedGrading ? visibleSizes : [baseSize]}
+      />
+
+      {/* Printable A4 Workshop Production Worksheet / Sewing Job Sheet */}
+      <WorkOrderModal
+        open={workOrderModalOpen}
+        onOpenChange={setWorkOrderModalOpen}
+        templateName={`${template.name} (${template.englishName})`}
+        params={params}
+        grading={grading}
       />
     </div>
   );

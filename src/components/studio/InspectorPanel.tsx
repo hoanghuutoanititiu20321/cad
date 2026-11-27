@@ -5,6 +5,7 @@ import {
   Download,
   FileCode2,
   Layers,
+  Printer,
   Ruler,
   Scissors,
   TableProperties,
@@ -30,7 +31,9 @@ interface InspectorPanelProps {
   selectedPieceId: string | null;
   onGradingOverridesChange: (next: GradingOverrides) => void;
   onFocusPiece: (pieceId: string) => void;
+  onOpenMarkerModal: () => void;
   onOpenExportModal: () => void;
+  onOpenWorkOrderModal: () => void;
 }
 
 export function InspectorPanel({
@@ -40,7 +43,9 @@ export function InspectorPanel({
   selectedPieceId,
   onGradingOverridesChange,
   onFocusPiece,
+  onOpenMarkerModal,
   onOpenExportModal,
+  onOpenWorkOrderModal,
 }: InspectorPanelProps) {
   const [inspectPointSize, setInspectPointSize] = useState<SizeCode>("XL");
 
@@ -480,6 +485,28 @@ export function InspectorPanel({
           <span className="rounded border border-[#E2E8F0] bg-white px-1.5 py-0.5">
             Tech Pack .ZIP
           </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onOpenMarkerModal}
+            className="border-emerald-300 bg-emerald-50/70 font-semibold text-emerald-800 hover:bg-emerald-100/80"
+          >
+            <Scissors className="size-3.5" />
+            Giác sơ đồ vải
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onOpenWorkOrderModal}
+            className="border-indigo-200 bg-white font-semibold text-[#4F46E5] hover:bg-indigo-50"
+          >
+            <Printer className="size-3.5" />
+            Phiếu may A4
+          </Button>
         </div>
 
         <Button

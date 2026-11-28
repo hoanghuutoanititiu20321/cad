@@ -47,6 +47,31 @@ import { cn } from "@/lib/utils";
 
 type StudioViewMode = "2d" | "split" | "3d";
 
+function getDefaultGradingOverrides(tplId: string): GradingOverrides {
+  if (tplId === "bomber-jacket" || tplId === "colorblock-polo") {
+    return {
+      waistStepCm: 5.0,
+      skirtLengthStepCm: 2.0,
+      pos1WaistMidOffsetMm: 0,
+      pos2HemMidOffsetMm: 0,
+    };
+  }
+  if (tplId === "baggy-jean") {
+    return {
+      waistStepCm: 4.0,
+      skirtLengthStepCm: 1.5,
+      pos1WaistMidOffsetMm: 0,
+      pos2HemMidOffsetMm: 0,
+    };
+  }
+  return {
+    waistStepCm: 4.0,
+    skirtLengthStepCm: 1.0,
+    pos1WaistMidOffsetMm: 0,
+    pos2HemMidOffsetMm: 0,
+  };
+}
+
 export function CadStudio({
   initialTemplateId = "circle-skirt",
 }: {
@@ -59,12 +84,9 @@ export function CadStudio({
     getTemplateById(initialTemplateId).getDefaultParams()
   );
   const [baseSize, setBaseSize] = useState<SizeCode>("M");
-  const [gradingOverrides, setGradingOverrides] = useState<GradingOverrides>({
-    waistStepCm: 4.0,
-    skirtLengthStepCm: initialTemplateId === "baggy-jean" ? 1.5 : 1.0,
-    pos1WaistMidOffsetMm: 0,
-    pos2HemMidOffsetMm: 0,
-  });
+  const [gradingOverrides, setGradingOverrides] = useState<GradingOverrides>(() =>
+    getDefaultGradingOverrides(initialTemplateId)
+  );
 
   const [layers, setLayers] = useState<LayerVisibility>({
     cutLines: true,
@@ -120,12 +142,7 @@ export function CadStudio({
     setTemplateId(nextId);
     setParams(found.template.getDefaultParams());
     setBaseSize("M");
-    setGradingOverrides({
-      waistStepCm: 4.0,
-      skirtLengthStepCm: nextId === "baggy-jean" ? 1.5 : 1.0,
-      pos1WaistMidOffsetMm: 0,
-      pos2HemMidOffsetMm: 0,
-    });
+    setGradingOverrides(getDefaultGradingOverrides(nextId));
     setSelectedPieceId(null);
     requestAnimationFrame(() => canvasRef.current?.fitAll());
   };
@@ -133,12 +150,7 @@ export function CadStudio({
   const handleReset = () => {
     setParams(template.getDefaultParams());
     setBaseSize("M");
-    setGradingOverrides({
-      waistStepCm: 4.0,
-      skirtLengthStepCm: templateId === "baggy-jean" ? 1.5 : 1.0,
-      pos1WaistMidOffsetMm: 0,
-      pos2HemMidOffsetMm: 0,
-    });
+    setGradingOverrides(getDefaultGradingOverrides(templateId));
     setSelectedPieceId(null);
     requestAnimationFrame(() => canvasRef.current?.fitAll());
   };

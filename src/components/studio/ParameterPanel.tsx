@@ -20,6 +20,8 @@ import type {
   TemplateSchema,
 } from "@/lib/cad/types";
 import { getBaggyJeanDefaults } from "@/templates/baggy-jean/schema";
+import { BOMBER_89865_PRESETS } from "@/templates/bomber-jacket/schema";
+import { HAZE026_PRESETS } from "@/templates/colorblock-polo/schema";
 import { SIZE_DEFINITIONS } from "@/templates/circle-skirt/grading";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -268,7 +270,11 @@ export function ParameterPanel({
             <span className="font-mono text-[10px] text-slate-500">
               {templateId === "baggy-jean"
                 ? "+4cm eo/mông • +2.5cm đùi"
-                : "+4cm eo / +1cm dài"}
+                : templateId === "bomber-jacket"
+                  ? "+5cm ngực • +2cm vai/dài (AU)"
+                  : templateId === "colorblock-polo"
+                    ? "+5cm ngực • +2.5cm vai • +2cm dài"
+                    : "+4cm eo / +1cm dài"}
             </span>
           </div>
           <div className="grid grid-cols-4 gap-1.5">
@@ -380,6 +386,70 @@ export function ParameterPanel({
                   Cơ thể Eo 75 / Mông 91
                 </div>
               </button>
+            </div>
+          ) : templateId === "bomber-jacket" ? (
+            <div className="grid grid-cols-2 gap-1.5">
+              {(
+                Object.entries(BOMBER_89865_PRESETS) as Array<
+                  [keyof typeof BOMBER_89865_PRESETS, (typeof BOMBER_89865_PRESETS)["adultM"]]
+                >
+              ).map(([key, preset], idx) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => onApplyPreset(preset.values)}
+                  className={cn(
+                    "rounded-md border bg-white px-2 py-1.5 text-left transition-colors cursor-pointer",
+                    idx === 0
+                      ? "border-indigo-200 hover:bg-indigo-50"
+                      : "border-[#E2E8F0] hover:border-indigo-200"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "text-[10.5px] font-bold",
+                      idx === 0 ? "text-[#4F46E5]" : "text-[#0F172A]"
+                    )}
+                  >
+                    {preset.label}
+                  </div>
+                  <div className="font-mono text-[9.5px] text-slate-500">
+                    {preset.sublabel}
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : templateId === "colorblock-polo" ? (
+            <div className="grid grid-cols-2 gap-1.5">
+              {(
+                Object.entries(HAZE026_PRESETS) as Array<
+                  [keyof typeof HAZE026_PRESETS, (typeof HAZE026_PRESETS)["adultM"]]
+                >
+              ).map(([key, preset], idx) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => onApplyPreset(preset.values)}
+                  className={cn(
+                    "rounded-md border bg-white px-2 py-1.5 text-left transition-colors cursor-pointer",
+                    idx === 0
+                      ? "border-indigo-200 hover:bg-indigo-50"
+                      : "border-[#E2E8F0] hover:border-indigo-200"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "text-[10.5px] font-bold",
+                      idx === 0 ? "text-[#4F46E5]" : "text-[#0F172A]"
+                    )}
+                  >
+                    {preset.label}
+                  </div>
+                  <div className="font-mono text-[9.5px] text-slate-500">
+                    {preset.sublabel}
+                  </div>
+                </button>
+              ))}
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-1.5">

@@ -143,8 +143,17 @@ export default function TemplatesPage() {
                 </p>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
-                <Badge variant="success">2 mẫu sẵn sàng (Active)</Badge>
-                <Badge variant="secondary">2 mẫu sắp ra mắt</Badge>
+                <Badge variant="success">
+                  {TEMPLATE_CATALOG.filter((t) => t.status === "active").length}{" "}
+                  mẫu sẵn sàng (Active)
+                </Badge>
+                <Badge variant="secondary">
+                  {
+                    TEMPLATE_CATALOG.filter((t) => t.status === "coming-soon")
+                      .length
+                  }{" "}
+                  mẫu sắp ra mắt
+                </Badge>
               </div>
             </div>
           </div>
@@ -153,7 +162,7 @@ export default function TemplatesPage() {
         {/* Template Grid */}
         <section className="py-12">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
               {TEMPLATE_CATALOG.map((item) => {
                 const isActive = item.status === "active";
                 return (

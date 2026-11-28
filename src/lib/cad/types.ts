@@ -103,6 +103,10 @@ export interface PatternPiece {
   cutQuantity: number;
   cutNote: string;
   material: "self" | "lining" | "interfacing";
+  /** Optional fabric colorway/group label (e.g. "LA65V Dark Bottle", "1×1 Rib Knit") */
+  fabricGroup?: string;
+  /** Optional subtle fill tint hex for multi-colorblock templates */
+  displayColor?: string;
   sewPaths: VectorPath[];
   cutPaths: VectorPath[];
   internalPaths: VectorPath[];
@@ -237,6 +241,18 @@ export interface GradedSizeEntry {
     frontRiseCm?: number;
     backRiseCm?: number;
     outseamCm?: number;
+    /** Optional upper-body / jacket / polo spec fields */
+    chestCm?: number;
+    hemCm?: number;
+    ribHemHalfCm?: number;
+    shoulderCm?: number;
+    armholeHalfCm?: number;
+    bodyLengthCm?: number;
+    neckWidthCm?: number;
+    frontNeckDropCm?: number;
+    backNeckDropCm?: number;
+    sleeveLengthCm?: number;
+    sleeveOpeningHalfCm?: number;
   };
   geometry: PatternGeometryResult;
 }

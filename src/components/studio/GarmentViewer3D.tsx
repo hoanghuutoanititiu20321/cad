@@ -18,7 +18,9 @@ import {
 } from "@/lib/cad/bodyStandards";
 import {
   buildBaggyJean3D,
+  buildBomberJacket3D,
   buildCircleSkirt3D,
+  buildColorblockPolo3D,
   buildMannequinGeometries,
   FABRIC_PRESETS,
 } from "@/lib/cad/drape3d";
@@ -43,12 +45,17 @@ export function GarmentViewer3D({
   const mountRef = useRef<HTMLDivElement>(null);
 
   const isJean = templateId === "baggy-jean";
+  const isBomber = templateId === "bomber-jacket";
+  const isPolo = templateId === "colorblock-polo";
+  const isTopGarment = isBomber || isPolo;
   const [previewSize, setPreviewSize] = useState<SizeCode>(activeBaseSize);
   const [mannequinCategory, setMannequinCategory] =
     useState<MannequinCategory>("women");
   const [fabricByTemplate, setFabricByTemplate] = useState<Record<string, string>>({
     "circle-skirt": "indigo-cotton",
     "baggy-jean": "sh3790-mstone",
+    "bomber-jacket": "maroon-fleece",
+    "colorblock-polo": "haze026-bottle",
   });
   const [showMannequin, setShowMannequin] = useState(true);
   const [showSeams, setShowSeams] = useState(true);
@@ -67,6 +74,7 @@ export function GarmentViewer3D({
     baseMesh: THREE.Mesh;
     primaryMesh: THREE.Mesh;
     waistbandMesh: THREE.Mesh;
+    extraPartsGroup: THREE.Group;
     seamLines: THREE.LineSegments;
     seamMat: THREE.LineBasicMaterial;
     hardwareMesh: THREE.Mesh;
@@ -74,13 +82,16 @@ export function GarmentViewer3D({
     wbMaterial: THREE.MeshPhysicalMaterial;
   } | null>(null);
 
-  const availableFabrics = useMemo(
-    () =>
-      FABRIC_PRESETS.filter((f) =>
-        isJean ? f.category === "denim" : f.category === "general"
-      ),
-    [isJean]
-  );
+  const availableFabrics = useMemo(() => {
+    const cat = isJean
+      ? "denim"
+      : isBomber
+        ? "fleece"
+        : isPolo
+          ? "polo"
+          : "general";
+    return FABRIC_PRESETS.filter((f) => f.category === cat);
+  }, [isBomber, isJean, isPolo]);
 
   const activeFabricId =
     fabricByTemplate[templateId] ?? availableFabrics[0].id;
@@ -233,6 +244,9 @@ export function GarmentViewer3D({
     waistbandMesh.receiveShadow = true;
     scene.add(waistbandMesh);
 
+    const extraPartsGroup = new THREE.Group();
+    scene.add(extraPartsGroup);
+
     // Topstitching / Seam Overlay
     const seamMat = new THREE.LineBasicMaterial({
       color: "#F8FAFC",
@@ -263,6 +277,7 @@ export function GarmentViewer3D({
       baseMesh,
       primaryMesh,
       waistbandMesh,
+      extraPartsGroup,
       seamLines,
       seamMat,
       hardwareMesh,
@@ -292,6 +307,16 @@ export function GarmentViewer3D({
     return () => {
       cancelAnimationFrame(rafId);
       resizeObserver.disconnect();
+      while (extraPartsGroup.children.length > 0) {
+        const child = extraPartsGroup.children[0] as THREE.Mesh;
+        extraPartsGroup.remove(child);
+        child.geometry.dispose();
+        if (Array.isArray(child.material)) {
+          child.material.forEach((m) => m.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
       controls.dispose();
       renderer.dispose();
       linenFormMat.dispose();
@@ -309,7 +334,7 @@ export function GarmentViewer3D({
   // Rebuild 3D Mannequin (from Excel Standard!) & Garment whenever template, params, size, or mannequin category changes
   const drapeData = useMemo(() => {
     const mannequin = buildMannequinGeometries(
-      sizeEntry.measurements.waistCm,
+      isTopGarment ? 72 : sizeEntry.measurements.waistCm,
       mannequinCategory,
       sizeEntry.size,
       true
@@ -321,14 +346,28 @@ export function GarmentViewer3D({
           mannequinCategory,
           sizeEntry.size
         )
-      : buildCircleSkirt3D(
-          sizeEntry.params,
-          selectedFabric.stiffness,
-          mannequinCategory,
-          sizeEntry.size
-        );
+      : isBomber
+        ? buildBomberJacket3D(
+            sizeEntry.params,
+            selectedFabric.stiffness,
+            mannequinCategory,
+            sizeEntry.size
+          )
+        : isPolo
+          ? buildColorblockPolo3D(
+              sizeEntry.params,
+              selectedFabric.stiffness,
+              mannequinCategory,
+              sizeEntry.size
+            )
+          : buildCircleSkirt3D(
+              sizeEntry.params,
+              selectedFabric.stiffness,
+              mannequinCategory,
+              sizeEntry.size
+            );
     return { mannequin, garment };
-  }, [isJean, mannequinCategory, selectedFabric.stiffness, sizeEntry]);
+  }, [isBomber, isJean, isPolo, isTopGarment, mannequinCategory, selectedFabric.stiffness, sizeEntry]);
 
   useEffect(() => {
     const ctx = threeRefs.current;
@@ -354,6 +393,36 @@ export function GarmentViewer3D({
     ctx.waistbandMesh.geometry.dispose();
     ctx.waistbandMesh.geometry = garment.waistbandGeometry;
 
+    // Clear & rebuild multi-color extra parts (Bomber Gold Stripes, Polo White/Black/Silver blocks)
+    while (ctx.extraPartsGroup.children.length > 0) {
+      const child = ctx.extraPartsGroup.children[0] as THREE.Mesh;
+      ctx.extraPartsGroup.remove(child);
+      child.geometry.dispose();
+      if (Array.isArray(child.material)) {
+        child.material.forEach((m) => m.dispose());
+      } else {
+        child.material.dispose();
+      }
+    }
+    if (garment.extraParts) {
+      for (const ep of garment.extraParts) {
+        const mat = new THREE.MeshPhysicalMaterial({
+          color: new THREE.Color(ep.color),
+          roughness: ep.roughness ?? 0.8,
+          metalness: ep.metalness ?? 0.03,
+          sheen: 0.35,
+          sheenRoughness: 0.7,
+          sheenColor: new THREE.Color("#FFFFFF"),
+          wireframe,
+          side: THREE.DoubleSide,
+        });
+        const mesh = new THREE.Mesh(ep.geometry, mat);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        ctx.extraPartsGroup.add(mesh);
+      }
+    }
+
     ctx.seamLines.geometry.dispose();
     ctx.seamLines.geometry = garment.seamLinesGeometry;
 
@@ -365,7 +434,12 @@ export function GarmentViewer3D({
       ctx.hardwareMesh.geometry = new THREE.BufferGeometry();
       ctx.hardwareMesh.visible = false;
     }
-  }, [drapeData, showSeams]);
+
+    // Center camera smoothly on upper-body vs lower-body garment
+    const targetY = isTopGarment ? 112 : isJean ? 68 : 82;
+    ctx.controls.target.set(0, targetY, 0);
+    ctx.controls.update();
+  }, [drapeData, isJean, isTopGarment, showSeams, wireframe]);
 
   useEffect(() => {
     const ctx = threeRefs.current;
@@ -404,15 +478,18 @@ export function GarmentViewer3D({
   const setCameraPreset = (preset: CameraPreset) => {
     const ctx = threeRefs.current;
     if (!ctx) return;
-    ctx.controls.target.set(0, isJean ? 68 : 82, 0);
+    const focusY = isTopGarment ? 112 : isJean ? 68 : 82;
+    const camY = isTopGarment ? 124 : 88;
+    const dist = isTopGarment ? 175 : 225;
+    ctx.controls.target.set(0, focusY, 0);
     if (preset === "front") {
-      ctx.camera.position.set(0, 88, 225);
+      ctx.camera.position.set(0, camY, dist);
     } else if (preset === "three-quarter") {
-      ctx.camera.position.set(118, 102, 205);
+      ctx.camera.position.set(dist * 0.52, camY + 12, dist * 0.9);
     } else if (preset === "side") {
-      ctx.camera.position.set(225, 88, 0);
+      ctx.camera.position.set(dist, camY, 0);
     } else if (preset === "back") {
-      ctx.camera.position.set(0, 90, -225);
+      ctx.camera.position.set(0, camY + 2, -dist);
     }
     ctx.controls.update();
   };
@@ -586,7 +663,13 @@ export function GarmentViewer3D({
         {/* Floating Fabric Swatch Picker (Top-Left) */}
         <div className="absolute top-3 left-3 z-10 flex items-center gap-2 rounded-xl border border-[#E2E8F0] bg-white/92 px-3 py-2 shadow-xs backdrop-blur-xs">
           <span className="text-[10px] font-semibold text-slate-500">
-            {isJean ? "Vải Denim:" : "Chất vải:"}
+            {isJean
+              ? "Vải Denim:"
+              : isBomber
+                ? "Vải Nỉ Fleece:"
+                : isPolo
+                  ? "Màu Chính Polo:"
+                  : "Chất vải:"}
           </span>
           <div className="flex items-center gap-1.5">
             {availableFabrics.map((fab) => {
@@ -647,6 +730,39 @@ export function GarmentViewer3D({
                 {sizeEntry.measurements.thighCm} • Ống{" "}
                 {sizeEntry.measurements.hemOpeningCm} • Dài trong{" "}
                 {sizeEntry.measurements.inseamCm} cm
+              </span>
+            </>
+          ) : isBomber ? (
+            <>
+              <span>
+                89865 Bomber Size{" "}
+                <strong className="font-mono text-[#4F46E5]">
+                  {sizeEntry.size}
+                </strong>
+              </span>
+              <span className="text-slate-300">|</span>
+              <span className="font-mono">
+                Ngực {sizeEntry.measurements.chestCm} • Vai{" "}
+                {sizeEntry.measurements.shoulderCm} • Dài{" "}
+                {sizeEntry.measurements.bodyLengthCm} • 1/2 Nách{" "}
+                {sizeEntry.measurements.armholeHalfCm} • Dài tay{" "}
+                {sizeEntry.measurements.sleeveLengthCm} cm
+              </span>
+            </>
+          ) : isPolo ? (
+            <>
+              <span>
+                HAZE026-028 Size{" "}
+                <strong className="font-mono text-[#4F46E5]">
+                  {sizeEntry.size}
+                </strong>
+              </span>
+              <span className="text-slate-300">|</span>
+              <span className="font-mono">
+                Ngực {sizeEntry.measurements.chestCm} • Vai{" "}
+                {sizeEntry.measurements.shoulderCm} • Dài CB{" "}
+                {sizeEntry.measurements.bodyLengthCm} • Tay ngắn{" "}
+                {sizeEntry.measurements.sleeveLengthCm} cm
               </span>
             </>
           ) : (

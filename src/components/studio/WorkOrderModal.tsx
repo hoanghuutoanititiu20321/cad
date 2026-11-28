@@ -44,21 +44,44 @@ export function WorkOrderModal({
   grading,
 }: WorkOrderModalProps) {
   const isJean = templateId === "baggy-jean";
+  const isBomber = templateId === "bomber-jacket";
+  const isPolo = templateId === "colorblock-polo";
+  const isTopGarment = isBomber || isPolo;
   const sheetRef = useRef<HTMLDivElement>(null);
 
   const [config, setConfig] = useState<WorkOrderConfig>(() => ({
-    styleCode: isJean ? "WV1499LSB-TD" : "CVX-2026-01",
-    workshopLine: isJean ? "Chuyền Jeans 02 — P.O. JC-0347" : "Chuyền May 01 — Tổ Mẫu",
+    styleCode: isJean
+      ? "WV1499LSB-TD"
+      : isBomber
+        ? "89865-BOMBER"
+        : isPolo
+          ? "HAZE026-028"
+          : "CVX-2026-01",
+    workshopLine: isJean
+      ? "Chuyền Jeans 02 — P.O. JC-0347"
+      : isBomber
+        ? "Chuyền Nỉ 03 — BEARE & LEY (Mernda Primary)"
+        : isPolo
+          ? "Xí Nghiệp May I — AFW (EM06082026A/B/C)"
+          : "Chuyền May 01 — Tổ Mẫu",
     fabricInfo: isJean
       ? "SH3790 Denim (M Stone + Tint + Grinding)"
-      : "Tuyết mưa / Cotton lạnh (Ít co giãn)",
-    fabricWidthCm: 150,
+      : isBomber
+        ? "Polyester Cotton Fleece Maroon + 1×1 Rib Maroon/2 Gold Stripes"
+        : isPolo
+          ? "LA65V Dark Bottle + Phối White, Black + Viền JC50 Silver 1102"
+          : "Tuyết mưa / Cotton lạnh (Ít co giãn)",
+    fabricWidthCm: isPolo ? 161 : 150,
     preparedBy: "Phòng Kỹ Thuật Rập",
     issueDate: "28/11/2026",
     sizeQuantities: { S: 10, M: 20, L: 15, XL: 5 },
     customNote: isJean
       ? "Chỉ may Golden Glo W32761 (T105 Topstitch, T60 Bartack, T40 Overlock). Nút 27L Anti-Copper (×1), Đinh tán 14L Brass (×3), Dây kéo 4 1/2\" Navy Tape."
-      : "Mật độ mũi chỉ 4 mũi/cm. Chỉ may cùng màu vải chính. Ủi rẽ đường sườn êm phẳng trước khi đóng lưng.",
+      : isBomber
+        ? "LƯU Ý QC PPS 03.04.2025: Đáp nẹp trước phải kéo lên đường vai con (5 cm). Lót túi PKB-01 phải kẹp đường may bo gấu và đính gài vào Đáp nẹp trong. Nút bấm 11mm DTM (×6). Thêu logo trường ngực trái."
+        : isPolo
+          ? "Tách 4 màu vải theo sơ đồ .PLT (Dark Bottle 161cm, White 161cm, Black 80.5cm, Silver 80.5cm, Keo 98cm). Quy cách trụ: Size 4–16 may 2 nút, Size XS–3XL may 3 nút. Gập lai áo & tay 2.5 cm trần đè."
+          : "Mật độ mũi chỉ 4 mũi/cm. Chỉ may cùng màu vải chính. Ủi rẽ đường sườn êm phẳng trước khi đóng lưng.",
   }));
 
   const computed = useMemo(
@@ -420,7 +443,8 @@ export function WorkOrderModal({
                             <path
                               key={cp.id}
                               d={pathToSvgD(cp)}
-                              fill="#EEF2FF"
+                              fill={piece.displayColor ?? "#EEF2FF"}
+                              fillOpacity={piece.displayColor ? 0.2 : 1}
                               fillRule="evenodd"
                               stroke="#0F172A"
                               strokeWidth={1.6}
@@ -546,13 +570,19 @@ export function WorkOrderModal({
                         <td className="border border-slate-300 px-2 py-1">
                           {isJean
                             ? 'Dây kéo 4 1/2" Navy + 1 Nút 27L Copper + 3 Đinh tán 14L Brass'
-                            : "Dây kéo giọt nước 18 cm + Keo ép lưng + Móc lưng"}
+                            : isBomber
+                              ? "6 Nút bấm 11mm DTM + Nhãn BEARE & LEY + Size pip + Keo nẹp"
+                              : isPolo
+                                ? "2–3 Nút trụ Polo + Keo ép trụ HAZE026-KEO + Dây xương cá cổ"
+                                : "Dây kéo giọt nước 18 cm + Keo ép lưng + Móc lưng"}
                         </td>
                         <td className="center border border-slate-300 px-2 py-1 text-center font-mono">
                           1 bộ
                         </td>
                         <td className="num border border-slate-300 px-2 py-1 text-right font-mono">
-                          {computed.totalZippers} bộ
+                          {isBomber || isPolo
+                            ? `${computed.totalGarments} bộ`
+                            : `${computed.totalZippers} bộ`}
                         </td>
                       </tr>
                       <tr className="bg-indigo-50/60">
@@ -652,6 +682,77 @@ export function WorkOrderModal({
                         ))}
                         <td className="center border border-slate-300 px-2 py-1 text-center font-mono text-[10px]">±1.2 / ±0.6 cm</td>
                       </tr>
+                    </>
+                  ) : isTopGarment ? (
+                    <>
+                      <tr>
+                        <td className="border border-slate-300 px-2 py-1 font-semibold">
+                          1. Vòng ngực thành phẩm (Chest Circ.)
+                        </td>
+                        {grading.entries.map((e) => (
+                          <td key={e.size} className="num border border-slate-300 px-2 py-1 text-right font-mono font-bold">
+                            {(e.measurements.chestCm ?? 0).toFixed(1)}
+                          </td>
+                        ))}
+                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono">±1.0 cm</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-slate-300 px-2 py-1 font-semibold">
+                          2. Ngang vai (Shoulder Width)
+                        </td>
+                        {grading.entries.map((e) => (
+                          <td key={e.size} className="num border border-slate-300 px-2 py-1 text-right font-mono font-semibold">
+                            {(e.measurements.shoulderCm ?? 0).toFixed(1)}
+                          </td>
+                        ))}
+                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono">±0.5 cm</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-slate-300 px-2 py-1">
+                          3. {isBomber ? "Dài áo từ HSP gồm bo (Front Length)" : "Dài áo giữa sau (Center Back Length)"}
+                        </td>
+                        {grading.entries.map((e) => (
+                          <td key={e.size} className="num border border-slate-300 px-2 py-1 text-right font-mono font-semibold">
+                            {(e.measurements.bodyLengthCm ?? 0).toFixed(1)}
+                          </td>
+                        ))}
+                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono">±1.0 cm</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-slate-300 px-2 py-1">
+                          4. 1/2 Vòng nách cong (1/2 Armhole) • Rộng cổ (Neck)
+                        </td>
+                        {grading.entries.map((e) => (
+                          <td key={e.size} className="num border border-slate-300 px-2 py-1 text-right font-mono">
+                            {(e.measurements.armholeHalfCm ?? 0).toFixed(1)} • {(e.measurements.neckWidthCm ?? 0).toFixed(1)}
+                          </td>
+                        ))}
+                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono">±0.5 cm</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-slate-300 px-2 py-1">
+                          5. Dài tay (Sleeve Length) • 1/2 Cửa tay (Opening)
+                        </td>
+                        {grading.entries.map((e) => (
+                          <td key={e.size} className="num border border-slate-300 px-2 py-1 text-right font-mono">
+                            {(e.measurements.sleeveLengthCm ?? 0).toFixed(1)} • {(e.measurements.sleeveOpeningHalfCm ?? 0).toFixed(1)}
+                          </td>
+                        ))}
+                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono">±0.5 cm</td>
+                      </tr>
+                      {isBomber && (
+                        <tr>
+                          <td className="border border-slate-300 px-2 py-1">
+                            6. 1/2 Bo gấu tự nhiên (Rib Hem Half)
+                          </td>
+                          {grading.entries.map((e) => (
+                            <td key={e.size} className="num border border-slate-300 px-2 py-1 text-right font-mono">
+                              {(e.measurements.ribHemHalfCm ?? 0).toFixed(1)}
+                            </td>
+                          ))}
+                          <td className="center border border-slate-300 px-2 py-1 text-center font-mono">±0.5 cm</td>
+                        </tr>
+                      )}
                     </>
                   ) : (
                     <>

@@ -2,6 +2,8 @@ import { roundCm } from "./math";
 import type { NestedGradingResult, ParamValues, SizeCode } from "./types";
 import { parseCircleSkirtParams, WAISTBAND_HEIGHT_CM } from "@/templates/circle-skirt/schema";
 import { parseBaggyJeanParams, WV1499_TECHPACK_META } from "@/templates/baggy-jean/schema";
+import { parseBomberJacketParams, BOMBER_89865_META } from "@/templates/bomber-jacket/schema";
+import { parseColorblockPoloParams, HAZE026_META } from "@/templates/colorblock-polo/schema";
 
 export interface WorkOrderConfig {
   styleCode: string;
@@ -106,6 +108,115 @@ export function computeWorkOrderDetails(
       totalWaistbandPieces: totalGarments * 2,
       totalInterfacingPieces: totalGarments * 2, // 2 Back Yokes
       totalZippers: totalGarments,
+      estimatedFabricMeters,
+      sewingSteps,
+    };
+  }
+
+  if (templateId === "bomber-jacket") {
+    const bp = parseBomberJacketParams(rawParams);
+    const saText = `${bp.seamAllowance.toFixed(1)} cm`;
+    const sewingSteps: SewingStep[] = [
+      {
+        stepNo: 1,
+        department: "Tổ Cắt & Ép keo",
+        instruction: `Kiểm đủ ${bp.includeFullTrims ? "10 mảnh rập" : "3 mảnh chính"} mã ${BOMBER_89865_META.styleCode} (${BOMBER_89865_META.school}). Tách riêng vải nỉ Fleece Maroon và bo gân 1×1 (Maroon & 2 sọc Gold). Ép keo dọc Đáp nẹp trong (FAC-01) để đóng nút bấm 11mm không bị rách nỉ.`,
+        machineType: "Bàn cắt / Máy ép keo",
+      },
+      {
+        stepNo: 2,
+        department: "Thêu Logo & Túi cơi xéo",
+        instruction: `Thêu logo trường trên ngực trái (cách mép trước 8.0 cm, cách HSP 17.5 cm ở size M). Mổ 2 túi cơi xéo bản 3.0 cm (miệng ${bp.pocketOpening} cm, cách sườn 3.0 cm, cách đường bo 7.5 cm), diễu mí xung quanh và đánh bọ hai đầu cơi.`,
+        machineType: "Máy thêu + Máy 1 kim + Đánh bọ",
+      },
+      {
+        stepNo: 3,
+        department: "Xử lý Lót túi & Đáp nẹp lên vai (QC Fix)",
+        instruction: `Đính mép trong của Lót túi (PKB-01) vào Đáp nẹp trong (FAC-01) để lót túi KHÔNG bị lật lộ khi mặc (lỗi PPS 03.04.2025). Kéo dài Đáp nẹp lên tận đường vai con (bản vai 5.0 cm, thân 9.0 cm).`,
+        machineType: "Máy 1 kim + Vắt sổ 4 chỉ",
+      },
+      {
+        stepNo: 4,
+        department: "Ráp Vai, Tra Tay & Ráp Sườn",
+        instruction: `Ráp vai thân trước – sau (kẹp kèm đầu đáp nẹp vai, chừa ${saText}). Tra 2 tay dài (SLV-01) khớp dấu bấm đỉnh vai & mang trước. Vắt sổ 4 chỉ kín sườn tay xuống sườn thân.`,
+        machineType: "Máy vắt sổ 4 chỉ + 1 kim",
+      },
+      {
+        stepNo: 5,
+        department: "Tra Cổ Bo, Bo Gấu & Bo Cửa Tay 1×1",
+        instruction: `Nối 2 Đáp gấu vải chính vuông (FHP-01: 8×6 cm) vào 2 đầu Bo gấu 1×1 (BSQ-01), tra vào lai thân sao cho đáy Lót túi (PKB-01) kẹp gọn trong đường may bo. Tra Cổ bo (CLR-01) và Bo tay (CUF-01) cao ${bp.ribHeight} cm khớp sọc Gold đều nhau.`,
+        machineType: "Máy vắt sổ 4 chỉ + 1 kim diễu mí",
+      },
+      {
+        stepNo: 6,
+        department: "Đóng Nút Bấm 11mm & Kiểm QC",
+        instruction: `Đóng 6 bộ nút bấm kim loại 11mm cùng màu (DTM) thẳng hàng dọc tâm nẹp trước, gài nhãn BEARE & LEY + size pip + nhãn giặt. Đo kiểm toàn bộ thông số chuẩn Australian Size Standards trước khi đóng túi poly.`,
+        machineType: "Máy đóng nút bấm + QC đo bàn",
+      },
+    ];
+
+    return {
+      totalGarments,
+      totalSkirtPanels: totalGarments * 3, // 2 Front + 1 Back
+      totalWaistbandPieces: totalGarments * 4, // Collar + Basque + 2 Cuffs
+      totalInterfacingPieces: totalGarments * 2, // 2 Front Facings
+      totalZippers: totalGarments * 6, // 6× 11mm press studs per jacket
+      estimatedFabricMeters,
+      sewingSteps,
+    };
+  }
+
+  if (templateId === "colorblock-polo") {
+    const pp = parseColorblockPoloParams(rawParams);
+    const saText = `${pp.seamAllowance.toFixed(1)} cm`;
+    const btnCount = pp.chest <= 99 ? 2 : 3;
+    const sewingSteps: SewingStep[] = [
+      {
+        stepNo: 1,
+        department: "Tổ Cắt 4 Màu Vải",
+        instruction: `Phân tách bàn cắt theo đúng 4 mã màu ${HAZE026_META.styleCode}: (1) Vải chính LA65V Dark Bottle (khổ 161 cm: S-BK, S-SLV, S-FRT4, SF-PL), (2) Vải phối 1 LA65V White (161 cm: W-FRT1), (3) LA65V Black (80.5 cm: B-FRT2), (4) Viền JC50 Silver (80.5 cm: C-FRT3) + Keo ép trụ HAZE026-KEO.`,
+        machineType: "Bàn cắt / Bấm dấu khớp chéo",
+      },
+      {
+        stepNo: 2,
+        department: "Ráp Phối Chéo 4 Mảnh Thân Trước",
+        instruction: pp.diagonalColorblock
+          ? `Ráp nối theo đúng thứ tự từ trên xuống: W-FRT1 (Trắng) → B-FRT2 (Đen ${pp.stripeWidth} cm) → C-FRT3 (Bạc ${pp.stripeWidth} cm) → S-FRT4 (Xanh Đậm), khớp chính xác 3 dấu bấm định vị trên đường chéo (chừa ${saText}). Diễu mí đè 0.1 cm giữ êm đường phối.`
+          : `Kiểm thân trước nguyên mảnh LA65V Dark Bottle, lấy dấu tâm trụ nút và dấu thêu logo.`,
+        machineType: "Vắt sổ 4 chỉ + Máy 1 kim diễu mí",
+      },
+      {
+        stepNo: 3,
+        department: "Làm Nẹp Trụ Cổ (2/3 Nút)",
+        instruction: `Ép keo HAZE026-KEO lên 2 lá trụ SF-PL (rộng ${pp.placketWidth} cm × dài ${pp.placketLength} cm). Bổ trụ giữa thân trước trên (W-FRT1), may chặn hộp chân trụ chắc chắn. Lưu ý quy cách .PLT: Size 4–16 dùng 2 nút, Size XS–3XL dùng 3 nút (mẫu hiện tại: ${btnCount} nút).`,
+        machineType: "Máy ép keo + Máy 1 kim",
+      },
+      {
+        stepNo: 4,
+        department: "Ráp Vai & Tra Lá Cổ Dệt Polo",
+        instruction: `Ráp vai con thân trước – sau (kèm dây xương cá / viền chống giãn vai). Tra lá cổ dệt phẳng Dark Bottle (bản CB ${pp.collarDepth} cm), cuốn bọc viền cổ sau sạch đường may, khớp chuẩn dấu bấm giữa cổ sau (CB).`,
+        machineType: "Vắt sổ 4 chỉ + Máy viền cổ",
+      },
+      {
+        stepNo: 5,
+        department: "Tra Tay Ngắn & Ráp Sườn",
+        instruction: `Tra 2 tay ngắn (S-SLV, dài ${pp.sleeveLength} cm) vào vòng nách (1/2 nách ${pp.armholeHalf} cm) khớp dấu bấm đỉnh tay & mang trước. Vắt sổ 4 chỉ liền sườn tay xuống sườn thân, lưu ý trùng khít mép các dải phối chéo hai bên sườn.`,
+        machineType: "Máy vắt sổ 4 chỉ",
+      },
+      {
+        stepNo: 6,
+        department: "Trần Đè Lai 2.5 cm, Đính Nút & QC",
+        instruction: `Gấp lai áo & lai cửa tay 2.5 cm chạy trần đè 2 kim (Coverstitch). Thùa khuy và đính ${btnCount} nút trụ đúng vị trí. Ủi hơi, đo kiểm thông số bảng SPEC (Ngực ${pp.chest} cm, Dài CB ${pp.cbLength} cm) trước khi xuất hàng AFW.`,
+        machineType: "Máy trần đè (Kansai) + Thùa khuy + Đính nút",
+      },
+    ];
+
+    return {
+      totalGarments,
+      totalSkirtPanels: totalGarments * (pp.diagonalColorblock ? 5 : 2), // 4 Front colorblocks + 1 Back
+      totalWaistbandPieces: totalGarments * 1, // Flat-knit collar
+      totalInterfacingPieces: totalGarments * 2, // 2 Placket interfacings (KEO)
+      totalZippers: totalGarments * btnCount, // Total buttons
       estimatedFabricMeters,
       sewingSteps,
     };

@@ -50,6 +50,10 @@ export function InspectorPanel({
   onOpenWorkOrderModal,
 }: InspectorPanelProps) {
   const isJean = templateId === "baggy-jean";
+  const isBomber = templateId === "bomber-jacket";
+  const isPolo = templateId === "colorblock-polo";
+  const isTopGarment = isBomber || isPolo;
+  const isSkirt = templateId === "circle-skirt";
   const [inspectPointSize, setInspectPointSize] = useState<SizeCode>("XL");
 
   const baseEntry =
@@ -121,6 +125,17 @@ export function InspectorPanel({
                       <p className="mt-0.5 text-[10px] text-slate-500">
                         {piece.englishName}
                       </p>
+                      {piece.fabricGroup && (
+                        <div className="mt-1 inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9.5px] font-medium text-slate-600">
+                          {piece.displayColor && (
+                            <span
+                              className="size-2 rounded-full border border-slate-300"
+                              style={{ backgroundColor: piece.displayColor }}
+                            />
+                          )}
+                          <span>{piece.fabricGroup}</span>
+                        </div>
+                      )}
                     </div>
                     <Badge
                       variant={isSelected ? "default" : "secondary"}
@@ -198,18 +213,24 @@ export function InspectorPanel({
 
           {/* TAB 2: Grading Spec Table & Key Point Coordinates (X, Y) */}
           <TabsContent value="grading" className="space-y-4">
-            {/* Custom Grade Step & Position [1] / [2] Input Box */}
+            {/* Custom Grade Step Input Box */}
             <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/40 p-3 space-y-2.5">
               <div className="flex items-center justify-between">
                 <h3 className="text-[11px] font-semibold text-[#0F172A]">
-                  Ô điền giá trị nhảy size & Vị trí [1] – [2]
+                  {isSkirt
+                    ? "Ô điền giá trị nhảy size & Vị trí [1] – [2]"
+                    : "Ô tùy chỉnh bước nhảy size (Grade Increments)"}
                 </h3>
                 <button
                   type="button"
                   onClick={() =>
                     onGradingOverridesChange({
-                      waistStepCm: 4.0,
-                      skirtLengthStepCm: 1.0,
+                      waistStepCm: isTopGarment ? 5.0 : 4.0,
+                      skirtLengthStepCm: isTopGarment
+                        ? 2.0
+                        : isJean
+                          ? 1.5
+                          : 1.0,
                       pos1WaistMidOffsetMm: 0,
                       pos2HemMidOffsetMm: 0,
                     })
@@ -223,14 +244,16 @@ export function InspectorPanel({
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label className="text-[10px] font-medium text-slate-600">
-                    Bước eo / size (cm)
+                    {isTopGarment
+                      ? "Bước vòng ngực / size (cm)"
+                      : "Bước eo / size (cm)"}
                   </label>
                   <Input
                     type="number"
                     step={0.5}
                     min={1}
                     max={10}
-                    value={gradingOverrides.waistStepCm ?? 4.0}
+                    value={gradingOverrides.waistStepCm ?? (isTopGarment ? 5.0 : 4.0)}
                     onChange={(e) => {
                       const v = parseFloat(e.target.value);
                       if (!Number.isNaN(v)) {
@@ -245,14 +268,21 @@ export function InspectorPanel({
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-medium text-slate-600">
-                    Bước dài / size (cm)
+                    {isTopGarment
+                      ? "Bước dài áo / size (cm)"
+                      : isJean
+                        ? "Bước inseam / size (cm)"
+                        : "Bước dài / size (cm)"}
                   </label>
                   <Input
                     type="number"
                     step={0.5}
                     min={0}
                     max={6}
-                    value={gradingOverrides.skirtLengthStepCm ?? 1.0}
+                    value={
+                      gradingOverrides.skirtLengthStepCm ??
+                      (isTopGarment ? 2.0 : isJean ? 1.5 : 1.0)
+                    }
                     onChange={(e) => {
                       const v = parseFloat(e.target.value);
                       if (!Number.isNaN(v)) {
@@ -265,57 +295,63 @@ export function InspectorPanel({
                     className="h-7 bg-white font-mono text-xs text-right"
                   />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-medium text-slate-600">
-                    Vị trí [1] Giữa eo (bù mm)
-                  </label>
-                  <Input
-                    type="number"
-                    step={0.5}
-                    min={-25}
-                    max={25}
-                    value={gradingOverrides.pos1WaistMidOffsetMm ?? 0}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value);
-                      if (!Number.isNaN(v)) {
-                        onGradingOverridesChange({
-                          ...gradingOverrides,
-                          pos1WaistMidOffsetMm: v,
-                        });
-                      }
-                    }}
-                    className="h-7 bg-white font-mono text-xs text-right"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-medium text-slate-600">
-                    Vị trí [2] Giữa lai (bù mm)
-                  </label>
-                  <Input
-                    type="number"
-                    step={0.5}
-                    min={-25}
-                    max={25}
-                    value={gradingOverrides.pos2HemMidOffsetMm ?? 0}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value);
-                      if (!Number.isNaN(v)) {
-                        onGradingOverridesChange({
-                          ...gradingOverrides,
-                          pos2HemMidOffsetMm: v,
-                        });
-                      }
-                    }}
-                    className="h-7 bg-white font-mono text-xs text-right"
-                  />
-                </div>
+                {isSkirt && (
+                  <>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-medium text-slate-600">
+                        Vị trí [1] Giữa eo (bù mm)
+                      </label>
+                      <Input
+                        type="number"
+                        step={0.5}
+                        min={-25}
+                        max={25}
+                        value={gradingOverrides.pos1WaistMidOffsetMm ?? 0}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (!Number.isNaN(v)) {
+                            onGradingOverridesChange({
+                              ...gradingOverrides,
+                              pos1WaistMidOffsetMm: v,
+                            });
+                          }
+                        }}
+                        className="h-7 bg-white font-mono text-xs text-right"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-medium text-slate-600">
+                        Vị trí [2] Giữa lai (bù mm)
+                      </label>
+                      <Input
+                        type="number"
+                        step={0.5}
+                        min={-25}
+                        max={25}
+                        value={gradingOverrides.pos2HemMidOffsetMm ?? 0}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (!Number.isNaN(v)) {
+                            onGradingOverridesChange({
+                              ...gradingOverrides,
+                              pos2HemMidOffsetMm: v,
+                            });
+                          }
+                        }}
+                        className="h-7 bg-white font-mono text-xs text-right"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
-              <p className="text-[10px] leading-snug text-slate-500">
-                Mặc định bù <strong className="font-mono text-[#0F172A]">0 mm</strong> →
-                đồng tâm chuẩn (<strong className="text-[#4F46E5]">Y sườn = X giữa [1]/[2]</strong>).
-                Điền +/- mm để tùy chỉnh riêng tại vị trí [1] hoặc [2].
-              </p>
+              {isSkirt && (
+                <p className="text-[10px] leading-snug text-slate-500">
+                  Mặc định bù <strong className="font-mono text-[#0F172A]">0 mm</strong> →
+                  đồng tâm chuẩn (<strong className="text-[#4F46E5]">Y sườn = X giữa [1]/[2]</strong>).
+                  Điền +/- mm để tùy chỉnh riêng tại vị trí [1] hoặc [2].
+                </p>
+              )}
             </div>
 
             {/* Table 1: Spec Table across S, M, L, XL */}
@@ -324,10 +360,20 @@ export function InspectorPanel({
                 <h3 className="text-[11px] font-semibold text-[#0F172A]">
                   {isJean
                     ? "Bảng thông số nhảy size Quần Jean S – XL"
-                    : "Bảng thông số bán kính S – XL (Radii Grading)"}
+                    : isBomber
+                      ? "Bảng thông số nhảy size 89865 (AU Std)"
+                      : isPolo
+                        ? "Bảng thông số nhảy size HAZE026-028"
+                        : "Bảng thông số bán kính S – XL (Radii Grading)"}
                 </h3>
                 <span className="font-mono text-[10px] text-slate-400">
-                  {isJean ? "cm (TCVN)" : "cm / mm"}
+                  {isJean
+                    ? "cm (TCVN)"
+                    : isBomber
+                      ? "cm (AU)"
+                      : isPolo
+                        ? "cm (AFW)"
+                        : "cm / mm"}
                 </span>
               </div>
 
@@ -342,6 +388,15 @@ export function InspectorPanel({
                         <th className="px-1.5 py-2 text-right">Đùi</th>
                         <th className="px-1.5 py-2 text-right">Ống</th>
                         <th className="px-1.5 py-2 text-right">Inseam</th>
+                      </tr>
+                    ) : isTopGarment ? (
+                      <tr>
+                        <th className="px-2 py-2">Size</th>
+                        <th className="px-1.5 py-2 text-right">Ngực</th>
+                        <th className="px-1.5 py-2 text-right">Vai</th>
+                        <th className="px-1.5 py-2 text-right">Dài</th>
+                        <th className="px-1.5 py-2 text-right">1/2 Nách</th>
+                        <th className="px-1.5 py-2 text-right">Tay</th>
                       </tr>
                     ) : (
                       <tr>
@@ -393,6 +448,24 @@ export function InspectorPanel({
                               {(entry.measurements.inseamCm ?? 0).toFixed(1)}
                             </td>
                           </>
+                        ) : isTopGarment ? (
+                          <>
+                            <td className="px-1.5 py-2 text-right text-[#0F172A]">
+                              {(entry.measurements.chestCm ?? 0).toFixed(1)}
+                            </td>
+                            <td className="px-1.5 py-2 text-right text-slate-700">
+                              {(entry.measurements.shoulderCm ?? 0).toFixed(1)}
+                            </td>
+                            <td className="px-1.5 py-2 text-right text-[#0F172A]">
+                              {(entry.measurements.bodyLengthCm ?? 0).toFixed(1)}
+                            </td>
+                            <td className="px-1.5 py-2 text-right text-slate-700">
+                              {(entry.measurements.armholeHalfCm ?? 0).toFixed(1)}
+                            </td>
+                            <td className="px-1.5 py-2 text-right text-slate-700">
+                              {(entry.measurements.sleeveLengthCm ?? 0).toFixed(1)}
+                            </td>
+                          </>
                         ) : (
                           <>
                             <td className="px-2 py-2 text-right text-slate-700">
@@ -422,6 +495,22 @@ export function InspectorPanel({
                     <strong className="text-[#0F172A]">+2.5 cm</strong> đùi,{" "}
                     <strong className="text-[#0F172A]">+1.5 cm</strong> gối/inseam,{" "}
                     <strong className="text-[#0F172A]">+1.0 cm</strong> ống.
+                  </>
+                ) : isBomber ? (
+                  <>
+                    * Quy tắc nhảy size 89865 (AU Std):{" "}
+                    <strong className="text-[#0F172A]">+5.0 cm</strong> ngực/lai,{" "}
+                    <strong className="text-[#0F172A]">+2.0 cm</strong> vai/dài áo,{" "}
+                    <strong className="text-[#0F172A]">+1.0 cm</strong> nách,{" "}
+                    <strong className="text-[#0F172A]">+0.5 cm</strong> cổ/tay.
+                  </>
+                ) : isPolo ? (
+                  <>
+                    * Quy tắc nhảy size HAZE026 (AFW):{" "}
+                    <strong className="text-[#0F172A]">+5.0 cm</strong> ngực/lai,{" "}
+                    <strong className="text-[#0F172A]">+2.5 cm</strong> vai,{" "}
+                    <strong className="text-[#0F172A]">+2.0 cm</strong> dài CB,{" "}
+                    <strong className="text-[#0F172A]">+1.0 cm</strong> nách/tay/cửa tay.
                   </>
                 ) : (
                   <>

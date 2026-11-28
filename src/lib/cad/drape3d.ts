@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { parseCircleSkirtParams, WAISTBAND_HEIGHT_CM } from "@/templates/circle-skirt/schema";
 import { parseBaggyJeanParams } from "@/templates/baggy-jean/schema";
+import { parseBomberJacketParams } from "@/templates/bomber-jacket/schema";
+import { parseColorblockPoloParams } from "@/templates/colorblock-polo/schema";
 import {
   getMannequinBodySpec,
   type BodyMeasurementStandard,
@@ -17,7 +19,7 @@ export interface FabricDrapePreset {
   metalness: number;
   /** 0.75 = soft fluid silk drape, 1.0 = medium cotton, 1.25 = crisp denim/twill */
   stiffness: number;
-  category: "general" | "denim";
+  category: "general" | "denim" | "fleece" | "polo";
 }
 
 export const FABRIC_PRESETS: FabricDrapePreset[] = [
@@ -121,6 +123,88 @@ export const FABRIC_PRESETS: FabricDrapePreset[] = [
     metalness: 0.02,
     stiffness: 1.18,
     category: "denim",
+  },
+  // Authentic Polyester Cotton Fleece Presets (Style 89865 Bomber Jacket)
+  {
+    id: "maroon-fleece",
+    name: "89865 Maroon Fleece (Mernda)",
+    color: "#6D1D32",
+    seamColor: "#EAB308",
+    roughness: 0.9,
+    metalness: 0.02,
+    stiffness: 1.12,
+    category: "fleece",
+  },
+  {
+    id: "navy-fleece",
+    name: "School Navy Fleece",
+    color: "#1E3A5F",
+    seamColor: "#EAB308",
+    roughness: 0.9,
+    metalness: 0.02,
+    stiffness: 1.12,
+    category: "fleece",
+  },
+  {
+    id: "forest-fleece",
+    name: "Forest Green Fleece",
+    color: "#1A3A32",
+    seamColor: "#FACC15",
+    roughness: 0.9,
+    metalness: 0.02,
+    stiffness: 1.12,
+    category: "fleece",
+  },
+  {
+    id: "charcoal-fleece",
+    name: "Charcoal Heather Fleece",
+    color: "#334155",
+    seamColor: "#CBD5E1",
+    roughness: 0.92,
+    metalness: 0.02,
+    stiffness: 1.12,
+    category: "fleece",
+  },
+  // Authentic LA65V Piqué Polo Presets (Style HAZE026-028 Colorblock Polo)
+  {
+    id: "haze026-bottle",
+    name: "HAZE026 LA65V Dark Bottle",
+    color: "#1A3A32",
+    seamColor: "#CBD5E1",
+    roughness: 0.8,
+    metalness: 0.03,
+    stiffness: 1.0,
+    category: "polo",
+  },
+  {
+    id: "haze-navy",
+    name: "LA65V Classic Navy",
+    color: "#1B2E4B",
+    seamColor: "#CBD5E1",
+    roughness: 0.8,
+    metalness: 0.03,
+    stiffness: 1.0,
+    category: "polo",
+  },
+  {
+    id: "haze-maroon",
+    name: "LA65V Heritage Maroon",
+    color: "#6D1D32",
+    seamColor: "#E2E8F0",
+    roughness: 0.8,
+    metalness: 0.03,
+    stiffness: 1.0,
+    category: "polo",
+  },
+  {
+    id: "haze-royal",
+    name: "LA65V Royal Blue",
+    color: "#1D4ED8",
+    seamColor: "#E2E8F0",
+    roughness: 0.8,
+    metalness: 0.03,
+    stiffness: 1.0,
+    category: "polo",
   },
 ];
 
@@ -423,11 +507,19 @@ export function buildMannequinGeometries(
   };
 }
 
+export interface ExtraPart3D {
+  geometry: THREE.BufferGeometry;
+  color: string;
+  roughness?: number;
+  metalness?: number;
+}
+
 export interface Garment3DBuildResult {
   primaryGeometry: THREE.BufferGeometry;
   waistbandGeometry: THREE.BufferGeometry;
   seamLinesGeometry: THREE.BufferGeometry;
   hardwareGeometry: THREE.BufferGeometry | null;
+  extraParts?: ExtraPart3D[];
   metrics: {
     waistElevationCm: number;
     hemElevationCm: number;
@@ -888,6 +980,683 @@ export function buildBaggyJean3D(
       waistElevationCm: Math.round(yFrontTop * 10) / 10,
       hemElevationCm: Math.round(yHem * 10) / 10,
       detailLabel: `WV1499LSB-TD • Ống rộng ${p.hemOpening} cm (25")`,
+    },
+  };
+}
+
+/**
+ * Helper to build a parametric 3D surface grid patch (u in [0,1], v in [0,1])
+ * for razor-sharp diagonal colorblock panels and tailored torso sections.
+ */
+function buildSurfacePatchGeometry(
+  uSegs: number,
+  vSegs: number,
+  sampleFn: (u: number, v: number) => THREE.Vector3
+): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+
+  for (let j = 0; j <= vSegs; j++) {
+    const v = j / vSegs;
+    for (let i = 0; i <= uSegs; i++) {
+      const u = i / uSegs;
+      const p = sampleFn(u, v);
+      positions.push(p.x, p.y, p.z);
+      uvs.push(u, v);
+    }
+  }
+
+  const stride = uSegs + 1;
+  for (let j = 0; j < vSegs; j++) {
+    for (let i = 0; i < uSegs; i++) {
+      const a = j * stride + i;
+      const b = a + stride;
+      const c = b + 1;
+      const d = a + 1;
+      indices.push(a, d, b);
+      indices.push(b, d, c);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * Build a sculpted tubular set-in sleeve starting at the shoulder socket and angling
+ * naturally downward along the body side.
+ */
+function buildSleeveTube(params: {
+  side: -1 | 1;
+  shoulderX: number;
+  shoulderY: number;
+  sleeveLengthCm: number;
+  rTopCm: number;
+  rEndCm: number;
+  armAngleDeg: number;
+  radialSegs?: number;
+  lengthSegs?: number;
+  startV?: number;
+  endV?: number;
+  radialOffset?: number;
+}): THREE.BufferGeometry {
+  const {
+    side,
+    shoulderX,
+    shoulderY,
+    sleeveLengthCm,
+    rTopCm,
+    rEndCm,
+    armAngleDeg,
+    radialSegs = 36,
+    lengthSegs = 28,
+    startV = 0,
+    endV = 1,
+    radialOffset = 0,
+  } = params;
+
+  const ang = (armAngleDeg * Math.PI) / 180;
+  // Unit axis pointing along arm from shoulder down & slightly outward
+  const dir = new THREE.Vector3(side * Math.sin(ang), -Math.cos(ang), 0.04).normalize();
+  const upRef = new THREE.Vector3(0, 0, 1);
+  const ortho1 = new THREE.Vector3().crossVectors(dir, upRef).normalize();
+  const ortho2 = new THREE.Vector3().crossVectors(ortho1, dir).normalize();
+
+  return buildLoftedTubeGeometry(
+    radialSegs,
+    lengthSegs,
+    (theta, localV) => {
+      const v = startV + (endV - startV) * localV;
+      const s = v * sleeveLengthCm;
+      // Soft shoulder cap rounding at very top (v < 0.14)
+      const capRound = v < 0.14 ? 0.88 + 0.12 * Math.sin((v / 0.14) * (Math.PI / 2)) : 1;
+      const drapeFold = 0.22 * Math.sin(3 * theta + side * 0.6) * Math.sin(v * Math.PI);
+      const r = (rTopCm + (rEndCm - rTopCm) * Math.pow(v, 0.85)) * capRound + drapeFold + radialOffset;
+      const center = new THREE.Vector3(
+        shoulderX + dir.x * s,
+        shoulderY + dir.y * s,
+        0.15 + dir.z * s
+      );
+      const rx = r * 0.96 * Math.cos(theta);
+      const rz = r * 1.04 * Math.sin(theta);
+      return center
+        .addScaledVector(ortho1, rx)
+        .addScaledVector(ortho2, rz);
+    },
+    false
+  );
+}
+
+/**
+ * Build real-time 3D STYLE 89865 BOMBER FLEECE JACKET (BEARE & LEY / Mernda Primary)
+ * Includes Fleece torso + 2 long sleeves + 1x1 Rib Collar/Basque/Cuffs with 2 Gold Stripes
+ * + 6× 11mm Press Studs + Angled 3cm Welt Pockets!
+ */
+export function buildBomberJacket3D(
+  rawParams: ParamValues,
+  stiffness = 1.12,
+  category: MannequinCategory = "women",
+  sizeCode = "M"
+): Garment3DBuildResult {
+  const p = parseBomberJacketParams(rawParams);
+  const body = getMannequinBodySpec(category, sizeCode);
+  const heightScale = body.heightMidCm / 161;
+
+  const yWaist = 102 * heightScale;
+  const yNeckBase = yWaist + body.backLengthCm * 0.96;
+  const yShoulder = yWaist + body.backLengthCm * 0.84;
+  const totalLen = Math.min(82, Math.max(44, p.frontLength * 0.94));
+  const ribH = p.ribHeight;
+  const yRibBottom = yNeckBase - totalLen;
+  const yRibTop = yRibBottom + ribH;
+
+  const rBodyChest = Math.max(body.bustCm / (2 * Math.PI) + 1.6, p.chest / (2 * Math.PI) * 0.95);
+  const rRibHem = Math.max(body.hipCm / (2 * Math.PI) + 0.9, (p.ribHemHalf * 2) / (2 * Math.PI) * 0.96);
+  const rNeck = Math.max(body.neckCm / (2 * Math.PI) + 0.7, (p.neckWidth * 2.55) / (2 * Math.PI));
+  const halfShoulder = Math.max(body.shoulderCm * 0.5 + 1.4, p.shoulder * 0.5 * 0.92);
+
+  // Sample Fleece Torso from top of Rib Basque (v=0) up to Collar seam (v=1)
+  const sampleBomberTorso = (theta: number, v: number): THREE.Vector3 => {
+    const frontFactor = Math.max(0, Math.sin(theta)); // +1 at CF
+    const neckDropHere =
+      frontFactor * Math.min(8.5, p.frontNeckDrop * 0.72) +
+      (1 - frontFactor) * 1.0;
+    const yTopAtTheta = yNeckBase - neckDropHere;
+    const y = yRibTop + (yTopAtTheta - yRibTop) * v;
+
+    let r = rBodyChest;
+    let kx = 1.14;
+    let kz = 0.88;
+    if (v < 0.18) {
+      // Gentle blouson puff right above the elastic 1x1 rib basque
+      const t = v / 0.18;
+      r = rRibHem + (rBodyChest - rRibHem) * Math.pow(t, 0.55) + 0.9 * Math.sin(t * Math.PI);
+    } else if (v > 0.78) {
+      // Taper cleanly over shoulders toward neck opening
+      const t = (v - 0.78) / 0.22;
+      const smooth = t * t * (3 - 2 * t);
+      const shoulderR = Math.max(rBodyChest * 0.88, halfShoulder * 0.82);
+      r = shoulderR + (rNeck - shoulderR) * smooth;
+      kx = 1.24 + (1.03 - 1.24) * smooth;
+      kz = 0.76 + (0.96 - 0.76) * smooth;
+    }
+
+    const fleeceFold = 0.28 * Math.sin(6 * theta + 0.4) * Math.sin(v * Math.PI);
+    return new THREE.Vector3(
+      (r + fleeceFold) * kx * Math.cos(theta),
+      y,
+      (r + fleeceFold) * kz * Math.sin(theta) + 0.25 * (1 - v)
+    );
+  };
+
+  const torsoGeo = buildLoftedTubeGeometry(84, 36, sampleBomberTorso, false);
+
+  // Left & Right Long Fleece Sleeves (length = sleeveLength - ribHeight)
+  const sleeveFabLen = Math.max(26, (p.sleeveLength - ribH) * 0.9);
+  const rArmTop = Math.max(5.8, (p.armholeHalf * 1.18) / Math.PI);
+  const rArmCuff = Math.max(4.0, (p.sleeveOpeningHalf * 2) / (2 * Math.PI));
+  const shoulderSocketX = halfShoulder * 0.94;
+  const shoulderSocketY = yShoulder - 2.4;
+
+  const leftSleeve = buildSleeveTube({
+    side: -1,
+    shoulderX: -shoulderSocketX,
+    shoulderY: shoulderSocketY,
+    sleeveLengthCm: sleeveFabLen,
+    rTopCm: rArmTop,
+    rEndCm: rArmCuff,
+    armAngleDeg: 18,
+  });
+  const rightSleeve = buildSleeveTube({
+    side: 1,
+    shoulderX: shoulderSocketX,
+    shoulderY: shoulderSocketY,
+    sleeveLengthCm: sleeveFabLen,
+    rTopCm: rArmTop,
+    rEndCm: rArmCuff,
+    armAngleDeg: 18,
+  });
+
+  const primaryGeometry = mergeSimpleBufferGeometries([
+    torsoGeo,
+    leftSleeve,
+    rightSleeve,
+  ]);
+
+  // 1×1 Rib Knit Trims: Basque + Collar + Left/Right Cuffs (rendered via waistbandGeometry)
+  const basqueGeo = buildLoftedTubeGeometry(
+    72,
+    10,
+    (theta, v) => {
+      const y = yRibBottom + ribH * v;
+      const r = rRibHem * (0.97 + 0.03 * v) + 0.14 * Math.sin(v * Math.PI);
+      return new THREE.Vector3(r * 1.14 * Math.cos(theta), y, r * 0.88 * Math.sin(theta) + 0.2);
+    },
+    false
+  );
+
+  const collarGeo = buildLoftedTubeGeometry(
+    64,
+    10,
+    (theta, v) => {
+      const frontFactor = Math.max(0, Math.sin(theta));
+      const neckDropHere =
+        frontFactor * Math.min(8.5, p.frontNeckDrop * 0.72) +
+        (1 - frontFactor) * 1.0;
+      const collarH = ribH * (0.88 - 0.35 * frontFactor * frontFactor);
+      const y = yNeckBase - neckDropHere + collarH * v;
+      const r = rNeck + 0.35 + 0.25 * (1 - v);
+      return new THREE.Vector3(r * 1.04 * Math.cos(theta), y, r * 0.96 * Math.sin(theta));
+    },
+    false
+  );
+
+  const cuffTotalLen = sleeveFabLen + ribH * 0.92;
+  const rRibCuff = Math.max(3.2, rArmCuff * 0.72);
+  const leftCuff = buildSleeveTube({
+    side: -1,
+    shoulderX: -shoulderSocketX,
+    shoulderY: shoulderSocketY,
+    sleeveLengthCm: cuffTotalLen,
+    rTopCm: rArmCuff * 0.82,
+    rEndCm: rRibCuff,
+    armAngleDeg: 18,
+    radialSegs: 28,
+    lengthSegs: 8,
+    startV: sleeveFabLen / cuffTotalLen,
+    endV: 1,
+    radialOffset: 0.12,
+  });
+  const rightCuff = buildSleeveTube({
+    side: 1,
+    shoulderX: shoulderSocketX,
+    shoulderY: shoulderSocketY,
+    sleeveLengthCm: cuffTotalLen,
+    rTopCm: rArmCuff * 0.82,
+    rEndCm: rRibCuff,
+    armAngleDeg: 18,
+    radialSegs: 28,
+    lengthSegs: 8,
+    startV: sleeveFabLen / cuffTotalLen,
+    endV: 1,
+    radialOffset: 0.12,
+  });
+
+  const waistbandGeometry = mergeSimpleBufferGeometries([
+    basqueGeo,
+    collarGeo,
+    leftCuff,
+    rightCuff,
+  ]);
+
+  // Extra Part 1: Authentic 2 Gold Rib Stripes (#EAB308) on Basque, Collar, and Both Cuffs!
+  const goldBands: THREE.BufferGeometry[] = [];
+  for (const bandV of [0.34, 0.64]) {
+    const bandHalf = 0.075;
+    // Basque gold stripe
+    goldBands.push(
+      buildLoftedTubeGeometry(
+        72,
+        2,
+        (theta, lv) => {
+          const v = bandV - bandHalf + lv * bandHalf * 2;
+          const y = yRibBottom + ribH * v;
+          const r = rRibHem * (0.97 + 0.03 * v) + 0.28;
+          return new THREE.Vector3(r * 1.14 * Math.cos(theta), y, r * 0.88 * Math.sin(theta) + 0.2);
+        },
+        false
+      )
+    );
+    // Collar gold stripe
+    goldBands.push(
+      buildLoftedTubeGeometry(
+        64,
+        2,
+        (theta, lv) => {
+          const v = bandV - bandHalf + lv * bandHalf * 2;
+          const frontFactor = Math.max(0, Math.sin(theta));
+          const neckDropHere =
+            frontFactor * Math.min(8.5, p.frontNeckDrop * 0.72) +
+            (1 - frontFactor) * 1.0;
+          const collarH = ribH * (0.88 - 0.35 * frontFactor * frontFactor);
+          const y = yNeckBase - neckDropHere + collarH * v;
+          const r = rNeck + 0.5 + 0.25 * (1 - v);
+          return new THREE.Vector3(r * 1.04 * Math.cos(theta), y, r * 0.96 * Math.sin(theta));
+        },
+        false
+      )
+    );
+    // Both sleeve cuffs gold stripes
+    for (const side of [-1, 1] as const) {
+      const startRatio = sleeveFabLen / cuffTotalLen;
+      const segSpan = 1 - startRatio;
+      goldBands.push(
+        buildSleeveTube({
+          side,
+          shoulderX: side * shoulderSocketX,
+          shoulderY: shoulderSocketY,
+          sleeveLengthCm: cuffTotalLen,
+          rTopCm: rArmCuff * 0.82,
+          rEndCm: rRibCuff,
+          armAngleDeg: 18,
+          radialSegs: 28,
+          lengthSegs: 2,
+          startV: startRatio + (bandV - bandHalf) * segSpan,
+          endV: startRatio + (bandV + bandHalf) * segSpan,
+          radialOffset: 0.28,
+        })
+      );
+    }
+  }
+  const goldStripesGeo = mergeSimpleBufferGeometries(goldBands);
+
+  // Seam lines (Center front placket, angled welt pockets, hem rib join)
+  const seamSegments: number[] = [];
+  const pushPoly = (pts: THREE.Vector3[]) => {
+    for (let k = 0; k < pts.length - 1; k++) {
+      seamSegments.push(
+        pts[k].x,
+        pts[k].y,
+        pts[k].z,
+        pts[k + 1].x,
+        pts[k + 1].y,
+        pts[k + 1].z
+      );
+    }
+  };
+  const outVec = (v: THREE.Vector3, amt = 0.25): THREE.Vector3 => {
+    const rad = Math.hypot(v.x, v.z) || 1;
+    return new THREE.Vector3(v.x + (v.x / rad) * amt, v.y, v.z + (v.z / rad) * amt);
+  };
+
+  // Center front press-stud opening line
+  const cfPts: THREE.Vector3[] = [];
+  for (let j = 0; j <= 28; j++) {
+    cfPts.push(outVec(sampleBomberTorso(Math.PI / 2, j / 28), 0.35));
+  }
+  pushPoly(cfPts);
+
+  // Two Angled Welt Pockets on left & right front chest/waist
+  for (const side of [-1, 1] as const) {
+    const tBot = Math.PI / 2 + side * 0.86;
+    const tTop = Math.PI / 2 + side * 0.56;
+    const vBot = 0.14;
+    const vTop = 0.42;
+    const p1 = outVec(sampleBomberTorso(tBot, vBot), 0.42);
+    const p2 = outVec(sampleBomberTorso(tTop, vTop), 0.42);
+    const p3 = outVec(sampleBomberTorso(tTop - side * 0.11, vTop - 0.02), 0.42);
+    const p4 = outVec(sampleBomberTorso(tBot - side * 0.11, vBot - 0.02), 0.42);
+    pushPoly([p1, p2, p3, p4, p1]);
+  }
+
+  const seamLinesGeometry = new THREE.BufferGeometry();
+  seamLinesGeometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(seamSegments, 3)
+  );
+
+  // 6× 11mm Press Studs down Center Front
+  const studParts: THREE.BufferGeometry[] = [];
+  for (let s = 0; s < 6; s++) {
+    const v = 0.06 + (0.86 * s) / 5;
+    const pos = outVec(sampleBomberTorso(Math.PI / 2, v), 0.42);
+    const stud = new THREE.CylinderGeometry(0.55, 0.55, 0.28, 16);
+    stud.rotateX(Math.PI / 2);
+    stud.translate(pos.x, pos.y, pos.z);
+    studParts.push(stud);
+  }
+  const hardwareGeometry = mergeSimpleBufferGeometries(studParts);
+  void stiffness;
+
+  return {
+    primaryGeometry,
+    waistbandGeometry,
+    seamLinesGeometry,
+    hardwareGeometry,
+    extraParts: [
+      {
+        geometry: goldStripesGeo,
+        color: "#EAB308",
+        roughness: 0.72,
+        metalness: 0.08,
+      },
+    ],
+    metrics: {
+      waistElevationCm: Math.round(yNeckBase * 10) / 10,
+      hemElevationCm: Math.round(yRibBottom * 10) / 10,
+      detailLabel: `89865 Bomber Fleece • Ngực ${p.chest} cm • Bo 1×1 2 sọc Gold`,
+    },
+  };
+}
+
+/**
+ * Build real-time 3D STYLE HAZE026-028 COLORBLOCK POLO SHIRT!
+ * Features razor-sharp 4-panel diagonal colorblock front (White FRT-1, Black FRT-2,
+ * Silver FRT-3, Dark Bottle FRT-4), solid back + short set-in sleeves, flat-knit
+ * folded polo collar & 2/3-button front placket!
+ */
+export function buildColorblockPolo3D(
+  rawParams: ParamValues,
+  stiffness = 1.0,
+  category: MannequinCategory = "women",
+  sizeCode = "M"
+): Garment3DBuildResult {
+  const p = parseColorblockPoloParams(rawParams);
+  const body = getMannequinBodySpec(category, sizeCode);
+  const heightScale = body.heightMidCm / 161;
+
+  const yWaist = 102 * heightScale;
+  const yNeckBase = yWaist + body.backLengthCm * 0.96;
+  const yShoulder = yWaist + body.backLengthCm * 0.85;
+  const bodyLen = Math.min(82, Math.max(42, (p.cbLength + p.backNeckDrop) * 0.94));
+  const yHem = yNeckBase - bodyLen;
+
+  const rChest = Math.max(body.bustCm / (2 * Math.PI) + 1.35, (p.chest / (2 * Math.PI)) * 0.94);
+  const rNeck = Math.max(body.neckCm / (2 * Math.PI) + 0.65, (p.neckWidth * 2.45) / (2 * Math.PI));
+  const halfShoulder = Math.max(body.shoulderCm * 0.5 + 1.2, p.shoulder * 0.5 * 0.9);
+
+  // Evaluate polo torso cross-section at any (theta, y)
+  const evalPoloPoint = (theta: number, y: number, extraR = 0): THREE.Vector3 => {
+    const frontFactor = Math.max(0, Math.sin(theta));
+    const neckDropHere =
+      frontFactor * Math.min(7.5, p.frontNeckDrop * 0.72) +
+      (1 - frontFactor) * p.backNeckDrop * 0.85;
+    const yTopHere = yNeckBase - neckDropHere;
+    const v = Math.min(1, Math.max(0, (y - yHem) / Math.max(1, yTopHere - yHem)));
+
+    let r = rChest;
+    let kx = 1.14;
+    let kz = 0.87;
+    if (v > 0.78) {
+      const t = (v - 0.78) / 0.22;
+      const smooth = t * t * (3 - 2 * t);
+      const shoulderR = Math.max(rChest * 0.88, halfShoulder * 0.81);
+      r = shoulderR + (rNeck - shoulderR) * smooth;
+      kx = 1.24 + (1.03 - 1.24) * smooth;
+      kz = 0.76 + (0.96 - 0.76) * smooth;
+    }
+
+    const softFold = 0.22 * Math.sin(5 * theta - 0.2) * (1 - v * 0.7);
+    return new THREE.Vector3(
+      (r + softFold + extraR) * kx * Math.cos(theta),
+      y,
+      (r + softFold + extraR) * kz * Math.sin(theta) + 0.2 * (1 - v)
+    );
+  };
+
+  // Back half (theta from PI to 2*PI) -> Solid Main Color (Dark Bottle)
+  const backGeo = buildSurfacePatchGeometry(42, 32, (u, v) => {
+    const theta = Math.PI + u * Math.PI;
+    const yTopHere = yNeckBase - p.backNeckDrop * 0.85;
+    const y = yHem + (yTopHere - yHem) * v;
+    return evalPoloPoint(theta, y);
+  });
+
+  // Short Set-In Sleeves -> Solid Main Color (Dark Bottle)
+  const shortLen = Math.max(14, p.sleeveLength * 0.92);
+  const rArmTop = Math.max(5.5, (p.armholeHalf * 1.15) / Math.PI);
+  const rArmEnd = Math.max(4.5, (p.sleeveOpeningHalf * 2) / (2 * Math.PI) * 0.9);
+  const shoulderSocketX = halfShoulder * 0.93;
+  const shoulderSocketY = yShoulder - 2.0;
+
+  const leftSleeve = buildSleeveTube({
+    side: -1,
+    shoulderX: -shoulderSocketX,
+    shoulderY: shoulderSocketY,
+    sleeveLengthCm: shortLen,
+    rTopCm: rArmTop,
+    rEndCm: rArmEnd,
+    armAngleDeg: 22,
+    lengthSegs: 18,
+  });
+  const rightSleeve = buildSleeveTube({
+    side: 1,
+    shoulderX: shoulderSocketX,
+    shoulderY: shoulderSocketY,
+    sleeveLengthCm: shortLen,
+    rTopCm: rArmTop,
+    rEndCm: rArmEnd,
+    armAngleDeg: 22,
+    lengthSegs: 18,
+  });
+
+  const primaryParts: THREE.BufferGeometry[] = [backGeo, leftSleeve, rightSleeve];
+  const extraParts: ExtraPart3D[] = [];
+  const seamSegments: number[] = [];
+  const pushPoly = (pts: THREE.Vector3[]) => {
+    for (let k = 0; k < pts.length - 1; k++) {
+      seamSegments.push(
+        pts[k].x,
+        pts[k].y,
+        pts[k].z,
+        pts[k + 1].x,
+        pts[k + 1].y,
+        pts[k + 1].z
+      );
+    }
+  };
+
+  if (p.diagonalColorblock) {
+    // Diagonal lines matching HAZE026 photo: higher on viewer's left (-X, u=0), sloping down to viewer's right (+X, u=1)
+    const y1Left = yNeckBase - bodyLen * 0.35;
+    const y1Right = yNeckBase - bodyLen * 0.51;
+    const stripeBandY = Math.min(bodyLen * 0.14, p.stripeWidth * 1.04);
+
+    const y1At = (u: number) => y1Left + (y1Right - y1Left) * u;
+    const y2At = (u: number) => y1At(u) - stripeBandY;
+    const y3At = (u: number) => y2At(u) - stripeBandY;
+
+    // 1. FRT-1 White Upper Panel
+    const frt1White = buildSurfacePatchGeometry(44, 18, (u, v) => {
+      const theta = Math.PI * (1 - u); // PI (-X viewer left) -> 0 (+X viewer right) across +Z front!
+      const frontFactor = Math.max(0, Math.sin(theta));
+      const yTop = yNeckBase - frontFactor * Math.min(7.5, p.frontNeckDrop * 0.72);
+      const yBot = y1At(u);
+      return evalPoloPoint(theta, yBot + (yTop - yBot) * v);
+    });
+    // 2. FRT-2 Black Diagonal Stripe
+    const frt2Black = buildSurfacePatchGeometry(44, 6, (u, v) => {
+      const theta = Math.PI * (1 - u);
+      const yBot = y2At(u);
+      const yTop = y1At(u);
+      return evalPoloPoint(theta, yBot + (yTop - yBot) * v);
+    });
+    // 3. FRT-3 Silver Diagonal Trim Stripe
+    const frt3Silver = buildSurfacePatchGeometry(44, 6, (u, v) => {
+      const theta = Math.PI * (1 - u);
+      const yBot = y3At(u);
+      const yTop = y2At(u);
+      return evalPoloPoint(theta, yBot + (yTop - yBot) * v);
+    });
+    // 4. FRT-4 Dark Bottle Lower Panel (merged into primaryGeometry!)
+    const frt4Bottle = buildSurfacePatchGeometry(44, 14, (u, v) => {
+      const theta = Math.PI * (1 - u);
+      const yTop = y3At(u);
+      return evalPoloPoint(theta, yHem + (yTop - yHem) * v);
+    });
+
+    primaryParts.push(frt4Bottle);
+    extraParts.push(
+      { geometry: frt1White, color: "#F8FAFC", roughness: 0.82, metalness: 0.02 },
+      { geometry: frt2Black, color: "#18181B", roughness: 0.82, metalness: 0.03 },
+      { geometry: frt3Silver, color: "#CBD5E1", roughness: 0.74, metalness: 0.08 }
+    );
+
+    // Crisp diagonal topstitch seam overlays
+    for (const yFn of [y1At, y2At, y3At]) {
+      const pts: THREE.Vector3[] = [];
+      for (let i = 0; i <= 40; i++) {
+        const u = i / 40;
+        const theta = Math.PI * (1 - u);
+        pts.push(evalPoloPoint(theta, yFn(u), 0.24));
+      }
+      pushPoly(pts);
+    }
+  } else {
+    // Solid front polo panel
+    const solidFront = buildSurfacePatchGeometry(44, 32, (u, v) => {
+      const theta = Math.PI * (1 - u);
+      const frontFactor = Math.max(0, Math.sin(theta));
+      const yTop = yNeckBase - frontFactor * Math.min(7.5, p.frontNeckDrop * 0.72);
+      return evalPoloPoint(theta, yHem + (yTop - yHem) * v);
+    });
+    primaryParts.push(solidFront);
+  }
+
+  const primaryGeometry = mergeSimpleBufferGeometries(primaryParts);
+
+  // Folded Flat-Knit Polo Collar + Center-Front Placket (rendered in main Dark Bottle fabric!)
+  const collarStandGeo = buildLoftedTubeGeometry(
+    64,
+    6,
+    (theta, v) => {
+      const frontFactor = Math.max(0, Math.sin(theta));
+      const yBase =
+        yNeckBase -
+        frontFactor * Math.min(7.5, p.frontNeckDrop * 0.72) -
+        (1 - frontFactor) * p.backNeckDrop * 0.85;
+      const y = yBase + 2.6 * v;
+      const r = rNeck + 0.35;
+      return new THREE.Vector3(r * 1.04 * Math.cos(theta), y, r * 0.96 * Math.sin(theta));
+    },
+    false
+  );
+  // Turned-down Polo Collar Leaf flaring gracefully outward over shoulder/neck
+  const collarLeafGeo = buildSurfacePatchGeometry(60, 8, (u, v) => {
+    // Open slightly at center front (leave ~12 deg gap for placket V)
+    const theta = Math.PI * 0.56 + u * Math.PI * 1.88;
+    const frontFactor = Math.max(0, Math.sin(theta));
+    const yCrease =
+      yNeckBase -
+      frontFactor * Math.min(7.5, p.frontNeckDrop * 0.72) -
+      (1 - frontFactor) * p.backNeckDrop * 0.85 +
+      2.6;
+    const leafLen = Math.min(7.5, p.collarDepth * 0.78);
+    const y = yCrease - leafLen * 0.72 * v;
+    const r = rNeck + 0.45 + leafLen * 0.68 * v;
+    return new THREE.Vector3(r * 1.06 * Math.cos(theta), y, r * 0.98 * Math.sin(theta));
+  });
+
+  // Dark Bottle Front Placket Patch proud over the White upper chest!
+  const plkTop = yNeckBase - Math.min(7.5, p.frontNeckDrop * 0.72) + 0.4;
+  const plkBot = plkTop - Math.min(18, p.placketLength * 0.9);
+  const plkHalfAngle = Math.min(0.14, (p.placketWidth * 0.52) / Math.max(8, rChest));
+  const placketGeo = buildSurfacePatchGeometry(6, 12, (u, v) => {
+    const theta = Math.PI / 2 - plkHalfAngle + u * plkHalfAngle * 2;
+    const y = plkBot + (plkTop - plkBot) * v;
+    return evalPoloPoint(theta, y, 0.38);
+  });
+
+  const waistbandGeometry = mergeSimpleBufferGeometries([
+    collarStandGeo,
+    collarLeafGeo,
+    placketGeo,
+  ]);
+
+  // 2 or 3 Polo Placket Buttons (matching real HAZE026 .PLT rule!)
+  const buttonCount = p.chest <= 99 ? 2 : 3;
+  const btnParts: THREE.BufferGeometry[] = [];
+  for (let b = 0; b < buttonCount; b++) {
+    const yBtn = plkTop - 2.4 - ((plkTop - plkBot - 5.2) * b) / Math.max(1, buttonCount - 1);
+    const pos = evalPoloPoint(Math.PI / 2, yBtn, 0.52);
+    const btn = new THREE.CylinderGeometry(0.48, 0.48, 0.22, 16);
+    btn.rotateX(Math.PI / 2);
+    btn.translate(pos.x, pos.y, pos.z);
+    btnParts.push(btn);
+  }
+  const hardwareGeometry = mergeSimpleBufferGeometries(btnParts);
+
+  // Hem topstitch ring
+  const hemPts: THREE.Vector3[] = [];
+  for (let i = 0; i <= 64; i++) {
+    hemPts.push(evalPoloPoint((i / 64) * Math.PI * 2, yHem + 1.8, 0.22));
+  }
+  pushPoly(hemPts);
+
+  const seamLinesGeometry = new THREE.BufferGeometry();
+  seamLinesGeometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(seamSegments, 3)
+  );
+  void stiffness;
+
+  return {
+    primaryGeometry,
+    waistbandGeometry,
+    seamLinesGeometry,
+    hardwareGeometry,
+    extraParts,
+    metrics: {
+      waistElevationCm: Math.round(yNeckBase * 10) / 10,
+      hemElevationCm: Math.round(yHem * 10) / 10,
+      detailLabel: p.diagonalColorblock
+        ? `HAZE026-028 • Phối chéo 4 màu (${buttonCount} nút trụ)`
+        : `HAZE026 Polo • Ngực ${p.chest} cm (${buttonCount} nút trụ)`,
     },
   };
 }

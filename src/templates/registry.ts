@@ -11,6 +11,18 @@ import {
 } from "./baggy-jean/schema";
 import { generateBaggyJeanGeometry } from "./baggy-jean/geometry";
 import { generateBaggyJeanGrading } from "./baggy-jean/grading";
+import {
+  bomberJacketSchema,
+  getBomberJacketDefaults,
+} from "./bomber-jacket/schema";
+import { generateBomberJacketGeometry } from "./bomber-jacket/geometry";
+import { generateBomberJacketGrading } from "./bomber-jacket/grading";
+import {
+  colorblockPoloSchema,
+  getColorblockPoloDefaults,
+} from "./colorblock-polo/schema";
+import { generateColorblockPoloGeometry } from "./colorblock-polo/geometry";
+import { generateColorblockPoloGrading } from "./colorblock-polo/grading";
 
 export const circleSkirtTemplate: PatternTemplate = {
   id: "circle-skirt",
@@ -40,6 +52,36 @@ export const baggyJeanTemplate: PatternTemplate = {
   getDefaultParams: getBaggyJeanDefaults,
   generateGeometry: generateBaggyJeanGeometry,
   generateGrading: generateBaggyJeanGrading,
+};
+
+export const bomberJacketTemplate: PatternTemplate = {
+  id: "bomber-jacket",
+  name: "Áo khoác Bomber nỉ (89865)",
+  englishName: "Bomber Fleece Jacket — Block LU9335",
+  category: "Áo khoác (Jackets / Fleece)",
+  version: "1.0.0",
+  description:
+    "Bộ rập áo khoác Bomber vải nỉ Polyester Fleece chuẩn BEARE & LEY / Mernda Primary (Style 89865 — Australian Size Standards): đủ 10 mảnh rập gồm Đáp nẹp kéo lên vai, Bo cổ/Bo gấu/Bo tay 1×1 (2 sọc Gold), Đáp gấu vuông và Túi cơi xéo 3 cm.",
+  status: "active",
+  schema: bomberJacketSchema,
+  getDefaultParams: getBomberJacketDefaults,
+  generateGeometry: generateBomberJacketGeometry,
+  generateGrading: generateBomberJacketGrading,
+};
+
+export const colorblockPoloTemplate: PatternTemplate = {
+  id: "colorblock-polo",
+  name: "Áo Polo phối chéo (HAZE026)",
+  englishName: "Colorblock Polo Shirt — HAZE026-028",
+  category: "Áo Polo (Knitwear / Uniform)",
+  version: "1.0.0",
+  description:
+    "Bộ rập áo Polo đồng phục phối màu chéo 4 mã vải chuẩn AFW (Style HAZE026-028): rã mảnh thân trước theo đúng sơ đồ cắt thực tế W-FRT1 (Trắng), B-FRT2 (Đen), C-FRT3 (Bạc), S-FRT4 (Xanh Đậm) + Thân sau, Tay ngắn, Trụ 2/3 nút & Lá cổ dệt.",
+  status: "active",
+  schema: colorblockPoloSchema,
+  getDefaultParams: getColorblockPoloDefaults,
+  generateGeometry: generateColorblockPoloGeometry,
+  generateGrading: generateColorblockPoloGrading,
 };
 
 export interface TemplateCatalogItem {
@@ -84,6 +126,34 @@ export const TEMPLATE_CATALOG: TemplateCatalogItem[] = [
     ],
     status: "active",
     template: baggyJeanTemplate,
+  },
+  {
+    id: bomberJacketTemplate.id,
+    name: bomberJacketTemplate.name,
+    englishName: bomberJacketTemplate.englishName,
+    category: bomberJacketTemplate.category,
+    description: bomberJacketTemplate.description,
+    highlights: [
+      "Chuẩn 89865 AU Spec (PPS 03.04.2025): Ngực 117 • Dài 73 cm",
+      "Đủ 10 mảnh rập: Đáp nẹp lên vai 5 cm, Bo 1×1 2 sọc Gold, Cơi xéo",
+      "Nạp nhanh size 4 / 8 / 14 / Adult M & Mô phỏng 3D áo khoác",
+    ],
+    status: "active",
+    template: bomberJacketTemplate,
+  },
+  {
+    id: colorblockPoloTemplate.id,
+    name: colorblockPoloTemplate.name,
+    englishName: colorblockPoloTemplate.englishName,
+    category: colorblockPoloTemplate.category,
+    description: colorblockPoloTemplate.description,
+    highlights: [
+      "Rã 4 mảnh chéo chuẩn .PLT: W-FRT1 / B-FRT2 / C-FRT3 / S-FRT4",
+      "Quy cách trụ 3 cm: 2 nút (Size 4–16) / 3 nút (XS–3XL)",
+      "Phân tách 4 màu vải (Dark Bottle / White / Black / Silver) + 3D",
+    ],
+    status: "active",
+    template: colorblockPoloTemplate,
   },
   {
     id: "basic-shift-dress",

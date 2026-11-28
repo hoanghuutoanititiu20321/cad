@@ -6,7 +6,11 @@ import {
   Calculator,
   RotateCcw,
   SlidersHorizontal,
+  UserCheck,
 } from "lucide-react";
+import {
+  getMannequinBodySpec,
+} from "@/lib/cad/bodyStandards";
 import type {
   FormulaItem,
   ParamField,
@@ -15,6 +19,7 @@ import type {
   SizeCode,
   TemplateSchema,
 } from "@/lib/cad/types";
+import { getBaggyJeanDefaults } from "@/templates/baggy-jean/schema";
 import { SIZE_DEFINITIONS } from "@/templates/circle-skirt/grading";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -32,23 +37,27 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 
 interface ParameterPanelProps {
+  templateId: string;
   schema: TemplateSchema;
   values: ParamValues;
   baseSize: SizeCode;
   formulas: FormulaItem[];
   warnings: string[];
   onChange: (key: string, value: ParamValue) => void;
+  onApplyPreset: (patch: Partial<ParamValues>) => void;
   onBaseSizeChange: (size: SizeCode) => void;
   onReset: () => void;
 }
 
 export function ParameterPanel({
+  templateId,
   schema,
   values,
   baseSize,
   formulas,
   warnings,
   onChange,
+  onApplyPreset,
   onBaseSizeChange,
   onReset,
 }: ParameterPanelProps) {
@@ -257,7 +266,9 @@ export function ParameterPanel({
               Size gốc nhập liệu (Base Size)
             </span>
             <span className="font-mono text-[10px] text-slate-500">
-              +4cm eo / +1cm dài
+              {templateId === "baggy-jean"
+                ? "+4cm eo/mông • +2.5cm đùi"
+                : "+4cm eo / +1cm dài"}
             </span>
           </div>
           <div className="grid grid-cols-4 gap-1.5">
@@ -284,6 +295,114 @@ export function ParameterPanel({
               );
             })}
           </div>
+        </div>
+
+        {/* Standard Body / Tech Pack Quick Presets (from Excel + WV1499LSB-TD) */}
+        <div className="rounded-lg border border-indigo-100 bg-indigo-50/35 p-2.5 space-y-2">
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#0F172A]">
+            <UserCheck className="size-3.5 text-[#4F46E5]" />
+            Nạp nhanh theo Cốt Chuẩn / Tech Pack
+          </div>
+          {templateId === "baggy-jean" ? (
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => onApplyPreset(getBaggyJeanDefaults())}
+                className="rounded-md border border-indigo-200 bg-white px-2 py-1.5 text-left transition-colors hover:bg-indigo-50 cursor-pointer"
+              >
+                <div className="text-[10.5px] font-bold text-[#4F46E5]">
+                  WV1499 Size &lt;3&gt;
+                </div>
+                <div className="font-mono text-[9.5px] text-slate-500">
+                  Eo 31&quot; • Mông 40.5&quot;
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const b = getMannequinBodySpec("women", "M");
+                  onApplyPreset({
+                    waist: Math.round((b.waistCm + 6) * 2) / 2,
+                    hip: Math.round((b.hipCm + 9) * 2) / 2,
+                    thigh: Math.round((b.thighCm + 12) * 2) / 2,
+                    knee: Math.round((b.kneeCm + 24) * 2) / 2,
+                    hemOpening: Math.round((b.hemOpeningCm + 30) * 2) / 2,
+                  });
+                }}
+                className="rounded-md border border-[#E2E8F0] bg-white px-2 py-1.5 text-left transition-colors hover:border-indigo-200 cursor-pointer"
+              >
+                <div className="text-[10.5px] font-semibold text-[#0F172A]">
+                  Cốt Nữ M (TCVN)
+                </div>
+                <div className="font-mono text-[9.5px] text-slate-500">
+                  Cơ thể Eo 69 / Mông 93
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const b = getMannequinBodySpec("women", "L");
+                  onApplyPreset({
+                    waist: Math.round((b.waistCm + 6) * 2) / 2,
+                    hip: Math.round((b.hipCm + 9) * 2) / 2,
+                    thigh: Math.round((b.thighCm + 12) * 2) / 2,
+                    knee: Math.round((b.kneeCm + 24) * 2) / 2,
+                    hemOpening: Math.round((b.hemOpeningCm + 30) * 2) / 2,
+                  });
+                }}
+                className="rounded-md border border-[#E2E8F0] bg-white px-2 py-1.5 text-left transition-colors hover:border-indigo-200 cursor-pointer"
+              >
+                <div className="text-[10.5px] font-semibold text-[#0F172A]">
+                  Cốt Nữ L (TCVN)
+                </div>
+                <div className="font-mono text-[9.5px] text-slate-500">
+                  Cơ thể Eo 73 / Mông 97
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const b = getMannequinBodySpec("men", "M");
+                  onApplyPreset({
+                    waist: Math.round((b.waistCm + 5) * 2) / 2,
+                    hip: Math.round((b.hipCm + 10) * 2) / 2,
+                    thigh: Math.round((b.thighCm + 11) * 2) / 2,
+                    knee: Math.round((b.kneeCm + 22) * 2) / 2,
+                    hemOpening: Math.round((b.hemOpeningCm + 26) * 2) / 2,
+                  });
+                }}
+                className="rounded-md border border-[#E2E8F0] bg-white px-2 py-1.5 text-left transition-colors hover:border-indigo-200 cursor-pointer"
+              >
+                <div className="text-[10.5px] font-semibold text-[#0F172A]">
+                  Cốt Nam M (TCVN)
+                </div>
+                <div className="font-mono text-[9.5px] text-slate-500">
+                  Cơ thể Eo 75 / Mông 91
+                </div>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-1.5">
+              {(["S", "M", "L"] as const).map((sz) => {
+                const b = getMannequinBodySpec("women", sz);
+                return (
+                  <button
+                    key={sz}
+                    type="button"
+                    onClick={() => onApplyPreset({ waist: b.waistCm })}
+                    className="rounded-md border border-[#E2E8F0] bg-white px-2 py-1.5 text-center transition-colors hover:border-indigo-200 cursor-pointer"
+                  >
+                    <div className="text-[10.5px] font-semibold text-[#0F172A]">
+                      Nữ {sz}
+                    </div>
+                    <div className="font-mono text-[9.5px] text-slate-500">
+                      Eo {b.waistCm}cm
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Dynamic Schema Groups */}

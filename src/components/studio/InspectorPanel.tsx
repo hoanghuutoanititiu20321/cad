@@ -25,6 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface InspectorPanelProps {
+  templateId: string;
   grading: NestedGradingResult;
   gradingOverrides: GradingOverrides;
   visibleSizes: SizeCode[];
@@ -37,6 +38,7 @@ interface InspectorPanelProps {
 }
 
 export function InspectorPanel({
+  templateId,
   grading,
   gradingOverrides,
   visibleSizes,
@@ -47,6 +49,7 @@ export function InspectorPanel({
   onOpenExportModal,
   onOpenWorkOrderModal,
 }: InspectorPanelProps) {
+  const isJean = templateId === "baggy-jean";
   const [inspectPointSize, setInspectPointSize] = useState<SizeCode>("XL");
 
   const baseEntry =
@@ -315,27 +318,40 @@ export function InspectorPanel({
               </p>
             </div>
 
-            {/* Table 1: Radii & Spec Table across S, M, L, XL */}
+            {/* Table 1: Spec Table across S, M, L, XL */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <h3 className="text-[11px] font-semibold text-[#0F172A]">
-                  Bảng thông số bán kính S – XL (Radii Grading)
+                  {isJean
+                    ? "Bảng thông số nhảy size Quần Jean S – XL"
+                    : "Bảng thông số bán kính S – XL (Radii Grading)"}
                 </h3>
                 <span className="font-mono text-[10px] text-slate-400">
-                  cm / mm
+                  {isJean ? "cm (TCVN)" : "cm / mm"}
                 </span>
               </div>
 
               <div className="overflow-hidden rounded-lg border border-[#E2E8F0]">
                 <table className="w-full text-left text-[11px]">
                   <thead className="bg-slate-50 text-[10px] font-semibold text-slate-500 border-b border-[#E2E8F0]">
-                    <tr>
-                      <th className="px-2 py-2">Size</th>
-                      <th className="px-2 py-2 text-right">Eo (cm)</th>
-                      <th className="px-2 py-2 text-right">Dài (cm)</th>
-                      <th className="px-2 py-2 text-right">R_eo (mm)</th>
-                      <th className="px-2 py-2 text-right">R_lai (mm)</th>
-                    </tr>
+                    {isJean ? (
+                      <tr>
+                        <th className="px-2 py-2">Size</th>
+                        <th className="px-1.5 py-2 text-right">Eo</th>
+                        <th className="px-1.5 py-2 text-right">Mông</th>
+                        <th className="px-1.5 py-2 text-right">Đùi</th>
+                        <th className="px-1.5 py-2 text-right">Ống</th>
+                        <th className="px-1.5 py-2 text-right">Inseam</th>
+                      </tr>
+                    ) : (
+                      <tr>
+                        <th className="px-2 py-2">Size</th>
+                        <th className="px-2 py-2 text-right">Eo (cm)</th>
+                        <th className="px-2 py-2 text-right">Dài (cm)</th>
+                        <th className="px-2 py-2 text-right">R_eo (mm)</th>
+                        <th className="px-2 py-2 text-right">R_lai (mm)</th>
+                      </tr>
+                    )}
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-mono tabular-nums">
                     {grading.entries.map((entry) => (
@@ -359,27 +375,61 @@ export function InspectorPanel({
                             )}
                           </span>
                         </td>
-                        <td className="px-2 py-2 text-right text-slate-700">
-                          {entry.measurements.waistCm.toFixed(1)}
-                        </td>
-                        <td className="px-2 py-2 text-right text-slate-700">
-                          {entry.measurements.skirtLengthCm.toFixed(1)}
-                        </td>
-                        <td className="px-2 py-2 text-right text-[#0F172A]">
-                          {entry.measurements.rWaistMm.toFixed(2)}
-                        </td>
-                        <td className="px-2 py-2 text-right text-[#0F172A]">
-                          {entry.measurements.rHemMm.toFixed(2)}
-                        </td>
+                        {isJean ? (
+                          <>
+                            <td className="px-1.5 py-2 text-right text-slate-700">
+                              {entry.measurements.waistCm.toFixed(1)}
+                            </td>
+                            <td className="px-1.5 py-2 text-right text-slate-700">
+                              {(entry.measurements.hipCm ?? 0).toFixed(1)}
+                            </td>
+                            <td className="px-1.5 py-2 text-right text-[#0F172A]">
+                              {(entry.measurements.thighCm ?? 0).toFixed(1)}
+                            </td>
+                            <td className="px-1.5 py-2 text-right text-[#0F172A]">
+                              {(entry.measurements.hemOpeningCm ?? 0).toFixed(1)}
+                            </td>
+                            <td className="px-1.5 py-2 text-right text-slate-700">
+                              {(entry.measurements.inseamCm ?? 0).toFixed(1)}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-2 py-2 text-right text-slate-700">
+                              {entry.measurements.waistCm.toFixed(1)}
+                            </td>
+                            <td className="px-2 py-2 text-right text-slate-700">
+                              {entry.measurements.skirtLengthCm.toFixed(1)}
+                            </td>
+                            <td className="px-2 py-2 text-right text-[#0F172A]">
+                              {entry.measurements.rWaistMm.toFixed(2)}
+                            </td>
+                            <td className="px-2 py-2 text-right text-[#0F172A]">
+                              {entry.measurements.rHemMm.toFixed(2)}
+                            </td>
+                          </>
+                        )}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
               <p className="text-[10px] text-slate-500">
-                * Quy tắc nhảy size chuẩn: mỗi size chênh{" "}
-                <strong className="text-[#0F172A]">+4.0 cm</strong> vòng eo và{" "}
-                <strong className="text-[#0F172A]">+1.0 cm</strong> dài váy.
+                {isJean ? (
+                  <>
+                    * Quy tắc nhảy size chuẩn Nữ TCVN:{" "}
+                    <strong className="text-[#0F172A]">+4.0 cm</strong> eo/mông,{" "}
+                    <strong className="text-[#0F172A]">+2.5 cm</strong> đùi,{" "}
+                    <strong className="text-[#0F172A]">+1.5 cm</strong> gối/inseam,{" "}
+                    <strong className="text-[#0F172A]">+1.0 cm</strong> ống.
+                  </>
+                ) : (
+                  <>
+                    * Quy tắc nhảy size chuẩn: mỗi size chênh{" "}
+                    <strong className="text-[#0F172A]">+4.0 cm</strong> vòng eo và{" "}
+                    <strong className="text-[#0F172A]">+1.0 cm</strong> dài váy.
+                  </>
+                )}
               </p>
             </div>
 

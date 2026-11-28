@@ -326,7 +326,7 @@ export default function HomePage() {
                     <div className="mt-4 pt-3 border-t border-slate-100">
                       {isActive ? (
                         <Button asChild size="sm" className="w-full">
-                          <Link href="/studio">
+                          <Link href={`/studio?template=${item.id}`}>
                             Mở trong Studio
                             <ArrowRight className="size-3.5" />
                           </Link>

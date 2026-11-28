@@ -1,19 +1,21 @@
 import React from "react";
 import { pathToSvgD } from "@/lib/cad/math";
-import { circleSkirtTemplate } from "@/templates/registry";
+import {
+  baggyJeanTemplate,
+  circleSkirtTemplate,
+} from "@/templates/registry";
 
 interface TemplateThumbnailProps {
   templateId: string;
 }
 
 export function TemplateThumbnail({ templateId }: TemplateThumbnailProps) {
-  if (templateId === "circle-skirt") {
-    const grading = circleSkirtTemplate.generateGrading(
-      circleSkirtTemplate.getDefaultParams(),
-      "M"
-    );
+  if (templateId === "circle-skirt" || templateId === "baggy-jean") {
+    const tpl =
+      templateId === "baggy-jean" ? baggyJeanTemplate : circleSkirtTemplate;
+    const grading = tpl.generateGrading(tpl.getDefaultParams(), "M");
     const bbox = grading.combinedBbox;
-    const pad = 75;
+    const pad = Math.max(bbox.width, bbox.height) * 0.06 + 40;
     const viewBox = `${bbox.minX - pad} ${bbox.minY - pad} ${bbox.width + pad * 2} ${bbox.height + pad * 2}`;
 
     return (

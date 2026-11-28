@@ -47,17 +47,21 @@ import { cn } from "@/lib/utils";
 
 type StudioViewMode = "2d" | "split" | "3d";
 
-export function CadStudio() {
-  const [templateId, setTemplateId] = useState("circle-skirt");
+export function CadStudio({
+  initialTemplateId = "circle-skirt",
+}: {
+  initialTemplateId?: string;
+}) {
+  const [templateId, setTemplateId] = useState(initialTemplateId);
   const template = useMemo(() => getTemplateById(templateId), [templateId]);
 
   const [params, setParams] = useState<ParamValues>(() =>
-    template.getDefaultParams()
+    getTemplateById(initialTemplateId).getDefaultParams()
   );
   const [baseSize, setBaseSize] = useState<SizeCode>("M");
   const [gradingOverrides, setGradingOverrides] = useState<GradingOverrides>({
     waistStepCm: 4.0,
-    skirtLengthStepCm: 1.0,
+    skirtLengthStepCm: initialTemplateId === "baggy-jean" ? 1.5 : 1.0,
     pos1WaistMidOffsetMm: 0,
     pos2HemMidOffsetMm: 0,
   });
@@ -100,12 +104,38 @@ export function CadStudio() {
     setParams((prev) => ({ ...prev, [key]: value }));
   };
 
+  const handleBulkParams = (patch: Partial<ParamValues>) => {
+    setParams((prev) => {
+      const next: ParamValues = { ...prev };
+      for (const [k, v] of Object.entries(patch)) {
+        if (v !== undefined) next[k] = v;
+      }
+      return next;
+    });
+  };
+
+  const handleTemplateSwitch = (nextId: string) => {
+    const found = TEMPLATE_CATALOG.find((t) => t.id === nextId);
+    if (found?.status !== "active" || !found.template) return;
+    setTemplateId(nextId);
+    setParams(found.template.getDefaultParams());
+    setBaseSize("M");
+    setGradingOverrides({
+      waistStepCm: 4.0,
+      skirtLengthStepCm: nextId === "baggy-jean" ? 1.5 : 1.0,
+      pos1WaistMidOffsetMm: 0,
+      pos2HemMidOffsetMm: 0,
+    });
+    setSelectedPieceId(null);
+    requestAnimationFrame(() => canvasRef.current?.fitAll());
+  };
+
   const handleReset = () => {
     setParams(template.getDefaultParams());
     setBaseSize("M");
     setGradingOverrides({
       waistStepCm: 4.0,
-      skirtLengthStepCm: 1.0,
+      skirtLengthStepCm: templateId === "baggy-jean" ? 1.5 : 1.0,
       pos1WaistMidOffsetMm: 0,
       pos2HemMidOffsetMm: 0,
     });
@@ -162,12 +192,7 @@ export function CadStudio() {
             </span>
             <Select
               value={templateId}
-              onValueChange={(val) => {
-                const found = TEMPLATE_CATALOG.find((t) => t.id === val);
-                if (found?.status === "active") {
-                  setTemplateId(val);
-                }
-              }}
+              onValueChange={handleTemplateSwitch}
             >
               <SelectTrigger className="h-8 w-72 border-[#E2E8F0] bg-slate-50/70 text-xs font-semibold">
                 <SelectValue />
@@ -283,12 +308,14 @@ export function CadStudio() {
         {/* Left Column: Parameters & Realtime Math */}
         <div className="w-[310px] xl:w-[335px] shrink-0 border-r border-[#E2E8F0] min-h-0 overflow-hidden">
           <ParameterPanel
+            templateId={template.id}
             schema={template.schema}
             values={params}
             baseSize={baseSize}
             formulas={baseEntry.geometry.formulas}
             warnings={baseEntry.geometry.warnings}
             onChange={handleParamChange}
+            onApplyPreset={handleBulkParams}
             onBaseSizeChange={setBaseSize}
             onReset={handleReset}
           />
@@ -326,6 +353,7 @@ export function CadStudio() {
               )}
             >
               <GarmentViewer3D
+                templateId={template.id}
                 grading={grading}
                 activeBaseSize={baseSize}
               />
@@ -336,6 +364,7 @@ export function CadStudio() {
         {/* Right Column: Pieces, Grading Coordinate Table & DXF Export */}
         <div className="w-[330px] xl:w-[365px] shrink-0 border-l border-[#E2E8F0] min-h-0 overflow-hidden">
           <InspectorPanel
+            templateId={template.id}
             grading={grading}
             gradingOverrides={gradingOverrides}
             visibleSizes={visibleSizes}
@@ -371,8 +400,10 @@ export function CadStudio() {
 
       {/* Printable A4 Workshop Production Worksheet / Sewing Job Sheet */}
       <WorkOrderModal
+        key={template.id}
         open={workOrderModalOpen}
         onOpenChange={setWorkOrderModalOpen}
+        templateId={template.id}
         templateName={`${template.name} (${template.englishName})`}
         params={params}
         grading={grading}

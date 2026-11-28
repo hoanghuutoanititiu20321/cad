@@ -228,6 +228,15 @@ export interface GradedSizeEntry {
     deltaRHemMm: number;
     pieceArcWaistCm: number;
     pieceArcHemCm: number;
+    /** Optional trouser / jean spec fields */
+    hipCm?: number;
+    thighCm?: number;
+    kneeCm?: number;
+    hemOpeningCm?: number;
+    inseamCm?: number;
+    frontRiseCm?: number;
+    backRiseCm?: number;
+    outseamCm?: number;
   };
   geometry: PatternGeometryResult;
 }

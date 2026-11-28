@@ -13,6 +13,11 @@ import {
   User,
 } from "lucide-react";
 import {
+  MANNEQUIN_STANDARD_GROUPS,
+  type MannequinCategory,
+} from "@/lib/cad/bodyStandards";
+import {
+  buildBaggyJean3D,
   buildCircleSkirt3D,
   buildMannequinGeometries,
   FABRIC_PRESETS,
@@ -23,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 interface GarmentViewer3DProps {
+  templateId: string;
   grading: NestedGradingResult;
   activeBaseSize: SizeCode;
 }
@@ -30,19 +36,25 @@ interface GarmentViewer3DProps {
 type CameraPreset = "front" | "three-quarter" | "side" | "back";
 
 export function GarmentViewer3D({
+  templateId,
   grading,
   activeBaseSize,
 }: GarmentViewer3DProps) {
   const mountRef = useRef<HTMLDivElement>(null);
 
+  const isJean = templateId === "baggy-jean";
   const [previewSize, setPreviewSize] = useState<SizeCode>(activeBaseSize);
-  const [fabricId, setFabricId] = useState<string>(FABRIC_PRESETS[0].id);
+  const [mannequinCategory, setMannequinCategory] =
+    useState<MannequinCategory>("women");
+  const [fabricByTemplate, setFabricByTemplate] = useState<Record<string, string>>({
+    "circle-skirt": "indigo-cotton",
+    "baggy-jean": "sh3790-mstone",
+  });
   const [showMannequin, setShowMannequin] = useState(true);
   const [showSeams, setShowSeams] = useState(true);
   const [wireframe, setWireframe] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
 
-  // Keep refs to Three.js scene objects so parameter updates swap geometries smoothly at 60fps without re-creating WebGLContext
   const threeRefs = useRef<{
     renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
@@ -53,18 +65,30 @@ export function GarmentViewer3D({
     neckCapMesh: THREE.Mesh;
     poleMesh: THREE.Mesh;
     baseMesh: THREE.Mesh;
-    skirtMesh: THREE.Mesh;
+    primaryMesh: THREE.Mesh;
     waistbandMesh: THREE.Mesh;
     seamLines: THREE.LineSegments;
-    zipperStopMarker: THREE.Mesh;
+    seamMat: THREE.LineBasicMaterial;
+    hardwareMesh: THREE.Mesh;
     clothMaterial: THREE.MeshPhysicalMaterial;
     wbMaterial: THREE.MeshPhysicalMaterial;
   } | null>(null);
 
+  const availableFabrics = useMemo(
+    () =>
+      FABRIC_PRESETS.filter((f) =>
+        isJean ? f.category === "denim" : f.category === "general"
+      ),
+    [isJean]
+  );
+
+  const activeFabricId =
+    fabricByTemplate[templateId] ?? availableFabrics[0].id;
   const selectedFabric = useMemo(
     () =>
-      FABRIC_PRESETS.find((f) => f.id === fabricId) ?? FABRIC_PRESETS[0],
-    [fabricId]
+      availableFabrics.find((f) => f.id === activeFabricId) ??
+      availableFabrics[0],
+    [activeFabricId, availableFabrics]
   );
 
   const sizeEntry = useMemo(
@@ -75,7 +99,7 @@ export function GarmentViewer3D({
     [activeBaseSize, grading.entries, previewSize]
   );
 
-  // Initialize Three.js WebGL Studio Scene once on mount
+  // Initialize Three.js Studio Scene once
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
@@ -86,12 +110,12 @@ export function GarmentViewer3D({
     const scene = new THREE.Scene();
     scene.background = new THREE.Color("#F8FAFC");
 
-    const camera = new THREE.PerspectiveCamera(36, width / height, 2, 900);
-    camera.position.set(115, 108, 185);
+    const camera = new THREE.PerspectiveCamera(36, width / height, 2, 950);
+    camera.position.set(118, 102, 205);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
-      preserveDrawingBuffer: true, // Allows crisp PNG snapshot capture!
+      preserveDrawingBuffer: true,
       powerPreference: "high-performance",
     });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -107,40 +131,40 @@ export function GarmentViewer3D({
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.07;
-    controls.target.set(0, 82, 0);
+    controls.target.set(0, 74, 0);
     controls.minDistance = 75;
-    controls.maxDistance = 380;
+    controls.maxDistance = 420;
     controls.maxPolarAngle = Math.PI * 0.52;
     controls.update();
 
-    // Soft 3-Point Fashion Studio Lighting
-    const hemiLight = new THREE.HemisphereLight("#FFFFFF", "#CBD5E1", 1.15);
-    hemiLight.position.set(0, 220, 0);
+    // 3-Point Fashion Studio Lighting
+    const hemiLight = new THREE.HemisphereLight("#FFFFFF", "#CBD5E1", 1.18);
+    hemiLight.position.set(0, 240, 0);
     scene.add(hemiLight);
 
     const keyLight = new THREE.DirectionalLight("#FFFDF9", 1.45);
-    keyLight.position.set(95, 210, 130);
+    keyLight.position.set(105, 220, 145);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.set(1024, 1024);
     keyLight.shadow.camera.near = 40;
-    keyLight.shadow.camera.far = 420;
-    keyLight.shadow.camera.left = -95;
-    keyLight.shadow.camera.right = 95;
-    keyLight.shadow.camera.top = 160;
-    keyLight.shadow.camera.bottom = -20;
+    keyLight.shadow.camera.far = 450;
+    keyLight.shadow.camera.left = -100;
+    keyLight.shadow.camera.right = 100;
+    keyLight.shadow.camera.top = 175;
+    keyLight.shadow.camera.bottom = -15;
     keyLight.shadow.bias = -0.0005;
     scene.add(keyLight);
 
-    const rimLight = new THREE.DirectionalLight("#E0E7FF", 0.75);
-    rimLight.position.set(-110, 145, -120);
+    const rimLight = new THREE.DirectionalLight("#E0E7FF", 0.78);
+    rimLight.position.set(-115, 150, -135);
     scene.add(rimLight);
 
-    const fillLight = new THREE.DirectionalLight("#FFFFFF", 0.45);
-    fillLight.position.set(-80, 75, 110);
+    const fillLight = new THREE.DirectionalLight("#FFFFFF", 0.48);
+    fillLight.position.set(-85, 75, 115);
     scene.add(fillLight);
 
-    // Studio Floor Shadow Catcher + Subtle Metric Polar/Grid Floor
-    const floorGeo = new THREE.CircleGeometry(130, 64);
+    // Studio Floor
+    const floorGeo = new THREE.CircleGeometry(135, 64);
     floorGeo.rotateX(-Math.PI / 2);
     const floorMat = new THREE.MeshStandardMaterial({
       color: "#F1F5F9",
@@ -151,14 +175,14 @@ export function GarmentViewer3D({
     floorMesh.receiveShadow = true;
     scene.add(floorMesh);
 
-    const gridHelper = new THREE.GridHelper(200, 20, "#CBD5E1", "#E2E8F0");
+    const gridHelper = new THREE.GridHelper(210, 21, "#CBD5E1", "#E2E8F0");
     gridHelper.position.y = 0.12;
     scene.add(gridHelper);
 
-    // Mannequin Group
+    // Full-Body Anatomical Mannequin Group
     const mannequinGroup = new THREE.Group();
     const linenFormMat = new THREE.MeshStandardMaterial({
-      color: "#F3EFE6",
+      color: "#F2EDE4",
       roughness: 0.85,
       metalness: 0.02,
     });
@@ -184,23 +208,22 @@ export function GarmentViewer3D({
     mannequinGroup.add(torsoMesh, neckCapMesh, poleMesh, baseMesh);
     scene.add(mannequinGroup);
 
-    // Cloth Physical Materials (with fabric sheen!)
+    // Cloth Physical Materials
     const clothMaterial = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color(FABRIC_PRESETS[0].color),
-      roughness: FABRIC_PRESETS[0].roughness,
-      metalness: FABRIC_PRESETS[0].metalness,
-      sheen: 0.55,
-      sheenRoughness: 0.6,
+      color: new THREE.Color("#4F46E5"),
+      roughness: 0.72,
+      metalness: 0.04,
+      sheen: 0.45,
+      sheenRoughness: 0.65,
       sheenColor: new THREE.Color("#FFFFFF"),
       side: THREE.DoubleSide,
     });
-
     const wbMaterial = clothMaterial.clone();
 
-    const skirtMesh = new THREE.Mesh(new THREE.BufferGeometry(), clothMaterial);
-    skirtMesh.castShadow = true;
-    skirtMesh.receiveShadow = true;
-    scene.add(skirtMesh);
+    const primaryMesh = new THREE.Mesh(new THREE.BufferGeometry(), clothMaterial);
+    primaryMesh.castShadow = true;
+    primaryMesh.receiveShadow = true;
+    scene.add(primaryMesh);
 
     const waistbandMesh = new THREE.Mesh(
       new THREE.BufferGeometry(),
@@ -210,23 +233,23 @@ export function GarmentViewer3D({
     waistbandMesh.receiveShadow = true;
     scene.add(waistbandMesh);
 
-    // Seam Stitch Overlay + Zipper Stop Marker
+    // Topstitching / Seam Overlay
     const seamMat = new THREE.LineBasicMaterial({
       color: "#F8FAFC",
       transparent: true,
-      opacity: 0.82,
+      opacity: 0.88,
     });
     const seamLines = new THREE.LineSegments(new THREE.BufferGeometry(), seamMat);
     scene.add(seamLines);
 
-    const zipGeo = new THREE.SphereGeometry(0.68, 16, 16);
-    const zipMat = new THREE.MeshStandardMaterial({
-      color: "#F59E0B",
-      roughness: 0.25,
-      metalness: 0.85,
+    // Antique Copper Button / Brass Rivets / Zipper Stop Hardware
+    const hwMat = new THREE.MeshStandardMaterial({
+      color: "#B45309",
+      roughness: 0.28,
+      metalness: 0.88,
     });
-    const zipperStopMarker = new THREE.Mesh(zipGeo, zipMat);
-    scene.add(zipperStopMarker);
+    const hardwareMesh = new THREE.Mesh(new THREE.BufferGeometry(), hwMat);
+    scene.add(hardwareMesh);
 
     threeRefs.current = {
       renderer,
@@ -238,15 +261,15 @@ export function GarmentViewer3D({
       neckCapMesh,
       poleMesh,
       baseMesh,
-      skirtMesh,
+      primaryMesh,
       waistbandMesh,
       seamLines,
-      zipperStopMarker,
+      seamMat,
+      hardwareMesh,
       clothMaterial,
       wbMaterial,
     };
 
-    // Responsive ResizeObserver
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const w = Math.max(200, Math.floor(entry.contentRect.width));
@@ -258,7 +281,6 @@ export function GarmentViewer3D({
     });
     resizeObserver.observe(container);
 
-    // Animation loop
     let rafId = 0;
     const animate = () => {
       rafId = requestAnimationFrame(animate);
@@ -277,30 +299,42 @@ export function GarmentViewer3D({
       clothMaterial.dispose();
       wbMaterial.dispose();
       seamMat.dispose();
-      zipGeo.dispose();
-      zipMat.dispose();
+      hwMat.dispose();
       floorGeo.dispose();
       floorMat.dispose();
       threeRefs.current = null;
     };
   }, []);
 
-  // Update 3D Draped Garment + Mannequin whenever pattern parameters, size, or fabric stiffness change!
-  const drapeMetrics = useMemo(() => {
-    const waistCm = sizeEntry.measurements.waistCm;
-    const mannequin = buildMannequinGeometries(waistCm);
-    const garment = buildCircleSkirt3D(
-      sizeEntry.params,
-      selectedFabric.stiffness
+  // Rebuild 3D Mannequin (from Excel Standard!) & Garment whenever template, params, size, or mannequin category changes
+  const drapeData = useMemo(() => {
+    const mannequin = buildMannequinGeometries(
+      sizeEntry.measurements.waistCm,
+      mannequinCategory,
+      sizeEntry.size,
+      true
     );
+    const garment = isJean
+      ? buildBaggyJean3D(
+          sizeEntry.params,
+          selectedFabric.stiffness,
+          mannequinCategory,
+          sizeEntry.size
+        )
+      : buildCircleSkirt3D(
+          sizeEntry.params,
+          selectedFabric.stiffness,
+          mannequinCategory,
+          sizeEntry.size
+        );
     return { mannequin, garment };
-  }, [selectedFabric.stiffness, sizeEntry]);
+  }, [isJean, mannequinCategory, selectedFabric.stiffness, sizeEntry]);
 
   useEffect(() => {
     const ctx = threeRefs.current;
     if (!ctx) return;
 
-    const { mannequin, garment } = drapeMetrics;
+    const { mannequin, garment } = drapeData;
 
     ctx.torsoMesh.geometry.dispose();
     ctx.torsoMesh.geometry = mannequin.torsoGeometry;
@@ -314,8 +348,8 @@ export function GarmentViewer3D({
     ctx.baseMesh.geometry.dispose();
     ctx.baseMesh.geometry = mannequin.baseGeometry;
 
-    ctx.skirtMesh.geometry.dispose();
-    ctx.skirtMesh.geometry = garment.skirtGeometry;
+    ctx.primaryMesh.geometry.dispose();
+    ctx.primaryMesh.geometry = garment.primaryGeometry;
 
     ctx.waistbandMesh.geometry.dispose();
     ctx.waistbandMesh.geometry = garment.waistbandGeometry;
@@ -323,15 +357,16 @@ export function GarmentViewer3D({
     ctx.seamLines.geometry.dispose();
     ctx.seamLines.geometry = garment.seamLinesGeometry;
 
-    if (garment.zipperPullPosition) {
-      ctx.zipperStopMarker.position.copy(garment.zipperPullPosition);
-      ctx.zipperStopMarker.visible = showSeams;
+    ctx.hardwareMesh.geometry.dispose();
+    if (garment.hardwareGeometry) {
+      ctx.hardwareMesh.geometry = garment.hardwareGeometry;
+      ctx.hardwareMesh.visible = showSeams;
     } else {
-      ctx.zipperStopMarker.visible = false;
+      ctx.hardwareMesh.geometry = new THREE.BufferGeometry();
+      ctx.hardwareMesh.visible = false;
     }
-  }, [drapeMetrics, showSeams]);
+  }, [drapeData, showSeams]);
 
-  // Update Materials & Visibility toggles without rebuilding geometry
   useEffect(() => {
     const ctx = threeRefs.current;
     if (!ctx) return;
@@ -343,20 +378,23 @@ export function GarmentViewer3D({
     ctx.clothMaterial.needsUpdate = true;
 
     ctx.wbMaterial.color.set(selectedFabric.color);
-    ctx.wbMaterial.roughness = Math.max(0.25, selectedFabric.roughness - 0.06);
+    ctx.wbMaterial.roughness = Math.max(0.28, selectedFabric.roughness - 0.05);
     ctx.wbMaterial.metalness = selectedFabric.metalness;
     ctx.wbMaterial.wireframe = wireframe;
     ctx.wbMaterial.needsUpdate = true;
 
+    ctx.seamMat.color.set(selectedFabric.seamColor);
+    ctx.seamMat.needsUpdate = true;
+
     ctx.mannequinGroup.visible = showMannequin;
     ctx.seamLines.visible = showSeams;
-    ctx.zipperStopMarker.visible =
-      showSeams && Boolean(drapeMetrics.garment.zipperPullPosition);
+    ctx.hardwareMesh.visible =
+      showSeams && Boolean(drapeData.garment.hardwareGeometry);
     ctx.controls.autoRotate = autoRotate;
     ctx.controls.autoRotateSpeed = 1.8;
   }, [
     autoRotate,
-    drapeMetrics.garment.zipperPullPosition,
+    drapeData.garment.hardwareGeometry,
     selectedFabric,
     showMannequin,
     showSeams,
@@ -366,15 +404,15 @@ export function GarmentViewer3D({
   const setCameraPreset = (preset: CameraPreset) => {
     const ctx = threeRefs.current;
     if (!ctx) return;
-    ctx.controls.target.set(0, 82, 0);
+    ctx.controls.target.set(0, isJean ? 68 : 82, 0);
     if (preset === "front") {
-      ctx.camera.position.set(0, 96, 210);
+      ctx.camera.position.set(0, 88, 225);
     } else if (preset === "three-quarter") {
-      ctx.camera.position.set(115, 108, 185);
+      ctx.camera.position.set(118, 102, 205);
     } else if (preset === "side") {
-      ctx.camera.position.set(210, 96, 0);
+      ctx.camera.position.set(225, 88, 0);
     } else if (preset === "back") {
-      ctx.camera.position.set(0, 98, -210);
+      ctx.camera.position.set(0, 90, -225);
     }
     ctx.controls.update();
   };
@@ -386,21 +424,23 @@ export function GarmentViewer3D({
     const dataUrl = ctx.renderer.domElement.toDataURL("image/png");
     const a = document.createElement("a");
     a.href = dataUrl;
-    a.download = `3d-preview-size-${sizeEntry.size}.png`;
+    a.download = `3d-${templateId}-size-${sizeEntry.size}.png`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
   };
 
+  const stdBody = drapeData.mannequin.bodySpec;
+
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-[#F8FAFC] select-none">
       {/* Top 3D Simulation Toolbar */}
       <div className="z-20 flex flex-wrap items-center justify-between gap-2 border-b border-[#E2E8F0] bg-white px-3 py-2">
-        {/* Left: Size Fit Selector & Camera Views */}
+        {/* Left: Size Fit + Standard Mannequin Selector (from Excel!) */}
         <div className="flex flex-wrap items-center gap-1.5">
           <div className="flex items-center gap-1 rounded-lg border border-[#E2E8F0] bg-slate-50 px-1.5 py-0.5">
             <span className="px-1 text-[10px] font-semibold text-slate-500">
-              Thử Size:
+              Size:
             </span>
             {SIZE_DEFINITIONS.map((sz) => {
               const active = sizeEntry.size === sz.code;
@@ -426,20 +466,39 @@ export function GarmentViewer3D({
             })}
           </div>
 
-          <div className="hidden sm:flex items-center gap-1">
+          {/* Standard Mannequin Switcher (Women / Men / Kids from Excel) */}
+          <div className="flex items-center gap-0.5 rounded-lg border border-[#E2E8F0] bg-slate-50 p-0.5">
+            {(["women", "men", "kids"] as const).map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setMannequinCategory(cat)}
+                className={cn(
+                  "rounded px-2 py-0.5 text-[10px] font-semibold transition-colors cursor-pointer",
+                  mannequinCategory === cat
+                    ? "bg-white text-[#4F46E5] shadow-2xs"
+                    : "text-slate-500 hover:text-[#0F172A]"
+                )}
+              >
+                {cat === "women" ? "Cốt Nữ" : cat === "men" ? "Cốt Nam" : "Trẻ em"}
+              </button>
+            ))}
+          </div>
+
+          <div className="hidden xl:flex items-center gap-1">
             {(
               [
-                { id: "three-quarter", label: "Góc 3/4" },
+                { id: "three-quarter", label: "3/4" },
                 { id: "front", label: "Trước" },
                 { id: "side", label: "Sườn" },
-                { id: "back", label: "Sau (Khóa)" },
+                { id: "back", label: "Sau" },
               ] as const
             ).map((cam) => (
               <button
                 key={cam.id}
                 type="button"
                 onClick={() => setCameraPreset(cam.id)}
-                className="rounded-md border border-[#E2E8F0] bg-white px-2 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-[#4F46E5] cursor-pointer"
+                className="rounded-md border border-[#E2E8F0] bg-white px-2 py-1 text-[10.5px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-[#4F46E5] cursor-pointer"
               >
                 {cam.label}
               </button>
@@ -458,7 +517,6 @@ export function GarmentViewer3D({
                 ? "border-indigo-200 bg-indigo-50/80 text-[#4F46E5]"
                 : "border-[#E2E8F0] bg-white text-slate-500"
             )}
-            title="Ẩn/hiện cốt Ma-nơ-canh"
           >
             <User className="size-3" />
             <span className="hidden xl:inline">Ma-nơ-canh</span>
@@ -473,10 +531,9 @@ export function GarmentViewer3D({
                 ? "border-indigo-200 bg-indigo-50/80 text-[#4F46E5]"
                 : "border-[#E2E8F0] bg-white text-slate-500"
             )}
-            title="Ẩn/hiện đường may ráp & điểm dừng khóa kéo"
           >
             <Scissors className="size-3" />
-            <span className="hidden xl:inline">Đường may</span>
+            <span className="hidden xl:inline">Đường chỉ</span>
           </button>
 
           <button
@@ -488,7 +545,6 @@ export function GarmentViewer3D({
                 ? "border-indigo-200 bg-indigo-50/80 text-[#4F46E5]"
                 : "border-[#E2E8F0] bg-white text-slate-500"
             )}
-            title="Xem lưới cấu trúc 3D (Mesh Wireframe)"
           >
             <Grid3X3 className="size-3" />
             <span className="hidden xl:inline">Lưới 3D</span>
@@ -503,7 +559,6 @@ export function GarmentViewer3D({
                 ? "border-[#4F46E5] bg-[#4F46E5] text-white"
                 : "border-[#E2E8F0] bg-white text-slate-600 hover:text-[#0F172A]"
             )}
-            title="Tự động xoay bàn mẫu 360°"
           >
             <RotateCw className={cn("size-3", autoRotate && "animate-spin")} />
             <span className="hidden xl:inline">Xoay 360°</span>
@@ -514,7 +569,6 @@ export function GarmentViewer3D({
             size="sm"
             onClick={handleCapturePng}
             className="h-7 gap-1 px-2 text-[11px]"
-            title="Chụp ảnh mẫu 3D lưu file PNG"
           >
             <Camera className="size-3 text-[#4F46E5]" />
             <span className="hidden lg:inline">Chụp PNG</span>
@@ -524,21 +578,29 @@ export function GarmentViewer3D({
 
       {/* Main WebGL 3D Viewport */}
       <div className="relative flex-1 min-h-0 overflow-hidden">
-        <div ref={mountRef} className="h-full w-full cursor-grab active:cursor-grabbing" />
+        <div
+          ref={mountRef}
+          className="h-full w-full cursor-grab active:cursor-grabbing"
+        />
 
         {/* Floating Fabric Swatch Picker (Top-Left) */}
         <div className="absolute top-3 left-3 z-10 flex items-center gap-2 rounded-xl border border-[#E2E8F0] bg-white/92 px-3 py-2 shadow-xs backdrop-blur-xs">
           <span className="text-[10px] font-semibold text-slate-500">
-            Chất vải:
+            {isJean ? "Vải Denim:" : "Chất vải:"}
           </span>
           <div className="flex items-center gap-1.5">
-            {FABRIC_PRESETS.map((fab) => {
+            {availableFabrics.map((fab) => {
               const active = fab.id === selectedFabric.id;
               return (
                 <button
                   key={fab.id}
                   type="button"
-                  onClick={() => setFabricId(fab.id)}
+                  onClick={() =>
+                    setFabricByTemplate((prev) => ({
+                      ...prev,
+                      [templateId]: fab.id,
+                    }))
+                  }
                   title={fab.name}
                   className={cn(
                     "size-5 rounded-full border transition-transform cursor-pointer",
@@ -556,34 +618,62 @@ export function GarmentViewer3D({
           </span>
         </div>
 
-        {/* Floating Live Garment Specs Badge (Bottom-Left) */}
-        <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex flex-wrap items-center gap-3 rounded-lg border border-[#E2E8F0] bg-white/92 px-3 py-1.5 text-[10px] font-medium text-slate-600 shadow-xs backdrop-blur-xs">
-          <span>
-            Size đang mặc:{" "}
-            <strong className="font-mono text-[#4F46E5]">
-              {sizeEntry.size}
-            </strong>{" "}
-            (Eo {sizeEntry.measurements.waistCm} cm • Dài{" "}
-            {sizeEntry.measurements.skirtLengthCm} cm)
-          </span>
-          <span className="text-slate-300">|</span>
-          <span>
-            Góc xòe:{" "}
-            <strong className="font-mono text-[#0F172A]">
-              {String(sizeEntry.params.flareAngle)}°
-            </strong>{" "}
-            • Nhún{" "}
-            <strong className="font-mono text-[#0F172A]">
-              ×{String(sizeEntry.params.gatherRatio)}
-            </strong>{" "}
-            •{" "}
-            {sizeEntry.params.waistbandType === "curved"
-              ? "Lưng cong 3.5cm"
-              : "Lưng thẳng 3.5cm"}
-          </span>
+        {/* Floating Standard Mannequin Body Spec Card (Top-Right) */}
+        <div className="pointer-events-none absolute top-3 right-3 z-10 hidden sm:block rounded-xl border border-[#E2E8F0] bg-white/92 px-3 py-2 text-[10px] text-slate-600 shadow-xs backdrop-blur-xs">
+          <div className="font-semibold text-[#0F172A]">
+            {MANNEQUIN_STANDARD_GROUPS[mannequinCategory].name} • Cỡ {stdBody.size}
+          </div>
+          <div className="mt-0.5 font-mono text-[9.5px] text-slate-500">
+            Cao {stdBody.heightRangeCm} | Ngực {stdBody.bustCm} | Eo{" "}
+            {stdBody.waistCm.toFixed(0)} | Mông {stdBody.hipCm.toFixed(0)} | Đùi{" "}
+            {stdBody.thighCm.toFixed(1)} cm
+          </div>
         </div>
 
-        {/* Reset Camera Quick Button (Bottom-Right) */}
+        {/* Floating Live Garment Specs Badge (Bottom-Left) */}
+        <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex flex-wrap items-center gap-3 rounded-lg border border-[#E2E8F0] bg-white/92 px-3 py-1.5 text-[10px] font-medium text-slate-600 shadow-xs backdrop-blur-xs">
+          {isJean ? (
+            <>
+              <span>
+                WV1499LSB-TD Size{" "}
+                <strong className="font-mono text-[#4F46E5]">
+                  {sizeEntry.size}
+                </strong>
+              </span>
+              <span className="text-slate-300">|</span>
+              <span className="font-mono">
+                Eo {sizeEntry.measurements.waistCm} • Mông{" "}
+                {sizeEntry.measurements.hipCm} • Đùi{" "}
+                {sizeEntry.measurements.thighCm} • Ống{" "}
+                {sizeEntry.measurements.hemOpeningCm} • Dài trong{" "}
+                {sizeEntry.measurements.inseamCm} cm
+              </span>
+            </>
+          ) : (
+            <>
+              <span>
+                Size đang mặc:{" "}
+                <strong className="font-mono text-[#4F46E5]">
+                  {sizeEntry.size}
+                </strong>{" "}
+                (Eo {sizeEntry.measurements.waistCm} cm • Dài{" "}
+                {sizeEntry.measurements.skirtLengthCm} cm)
+              </span>
+              <span className="text-slate-300">|</span>
+              <span>
+                Góc xòe:{" "}
+                <strong className="font-mono text-[#0F172A]">
+                  {String(sizeEntry.params.flareAngle)}°
+                </strong>{" "}
+                • Nhún{" "}
+                <strong className="font-mono text-[#0F172A]">
+                  ×{String(sizeEntry.params.gatherRatio)}
+                </strong>
+              </span>
+            </>
+          )}
+        </div>
+
         <button
           type="button"
           onClick={() => setCameraPreset("three-quarter")}
@@ -601,7 +691,7 @@ export function GarmentViewer3D({
           <span>
             Mô phỏng 3D Realtime •{" "}
             <strong className="text-[#0F172A]">
-              {drapeMetrics.garment.metrics.fluteCount} múi sóng rũ tự nhiên
+              {drapeData.garment.metrics.detailLabel}
             </strong>
           </span>
         </div>

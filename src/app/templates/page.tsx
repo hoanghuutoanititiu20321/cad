@@ -143,8 +143,8 @@ export default function TemplatesPage() {
                 </p>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
-                <Badge variant="success">1 mẫu sẵn sàng (Active)</Badge>
-                <Badge variant="secondary">3 mẫu sắp ra mắt</Badge>
+                <Badge variant="success">2 mẫu sẵn sàng (Active)</Badge>
+                <Badge variant="secondary">2 mẫu sắp ra mắt</Badge>
               </div>
             </div>
           </div>
@@ -208,7 +208,7 @@ export default function TemplatesPage() {
                       <div className="mt-5 pt-3 border-t border-slate-100">
                         {isActive ? (
                           <Button asChild className="w-full shadow-xs">
-                            <Link href="/studio">
+                            <Link href={`/studio?template=${item.id}`}>
                               <Scissors className="size-3.5" />
                               Mở trong Studio CAD
                               <ArrowRight className="size-3.5" />

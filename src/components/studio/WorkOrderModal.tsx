@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label";
 interface WorkOrderModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  templateId?: string;
   templateName: string;
   params: ParamValues;
   grading: NestedGradingResult;
@@ -37,27 +38,32 @@ const SIZES: SizeCode[] = ["S", "M", "L", "XL"];
 export function WorkOrderModal({
   open,
   onOpenChange,
+  templateId = "circle-skirt",
   templateName,
   params,
   grading,
 }: WorkOrderModalProps) {
+  const isJean = templateId === "baggy-jean";
   const sheetRef = useRef<HTMLDivElement>(null);
 
-  const [config, setConfig] = useState<WorkOrderConfig>({
-    styleCode: "CVX-2026-01",
-    workshopLine: "Chuyền May 01 — Tổ Mẫu",
-    fabricInfo: "Tuyết mưa / Cotton lạnh (Ít co giãn)",
+  const [config, setConfig] = useState<WorkOrderConfig>(() => ({
+    styleCode: isJean ? "WV1499LSB-TD" : "CVX-2026-01",
+    workshopLine: isJean ? "Chuyền Jeans 02 — P.O. JC-0347" : "Chuyền May 01 — Tổ Mẫu",
+    fabricInfo: isJean
+      ? "SH3790 Denim (M Stone + Tint + Grinding)"
+      : "Tuyết mưa / Cotton lạnh (Ít co giãn)",
     fabricWidthCm: 150,
     preparedBy: "Phòng Kỹ Thuật Rập",
-    issueDate: "27/11/2026",
+    issueDate: "28/11/2026",
     sizeQuantities: { S: 10, M: 20, L: 15, XL: 5 },
-    customNote:
-      "Mật độ mũi chỉ 4 mũi/cm. Chỉ may cùng màu vải chính. Ủi rẽ đường sườn êm phẳng trước khi đóng lưng.",
-  });
+    customNote: isJean
+      ? "Chỉ may Golden Glo W32761 (T105 Topstitch, T60 Bartack, T40 Overlock). Nút 27L Anti-Copper (×1), Đinh tán 14L Brass (×3), Dây kéo 4 1/2\" Navy Tape."
+      : "Mật độ mũi chỉ 4 mũi/cm. Chỉ may cùng màu vải chính. Ủi rẽ đường sườn êm phẳng trước khi đóng lưng.",
+  }));
 
   const computed = useMemo(
-    () => computeWorkOrderDetails(params, grading, config),
-    [config, grading, params]
+    () => computeWorkOrderDetails(params, grading, config, templateId),
+    [config, grading, params, templateId]
   );
 
   const baseEntry = useMemo(
@@ -517,57 +523,30 @@ export function WorkOrderModal({
                       </tr>
                     </thead>
                     <tbody>
-                      <tr>
-                        <td className="border border-slate-300 px-2 py-1 font-mono font-bold">
-                          SKT-01
-                        </td>
-                        <td className="border border-slate-300 px-2 py-1">
-                          Tùng váy xòe {String(params.flareAngle)}° (Vải chính)
-                        </td>
-                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono">
-                          ×{String(params.pieceMultiplier)}
-                        </td>
-                        <td className="num border border-slate-300 px-2 py-1 text-right font-mono font-semibold">
-                          {computed.totalSkirtPanels} lá
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="border border-slate-300 px-2 py-1 font-mono font-bold">
-                          WB-01
-                        </td>
-                        <td className="border border-slate-300 px-2 py-1">
-                          {params.waistbandType === "curved"
-                            ? "Bản lưng cong 3.5 cm"
-                            : "Bản lưng thẳng 3.5 cm"}{" "}
-                          (Chính + Lót)
-                        </td>
-                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono">
-                          ×2
-                        </td>
-                        <td className="num border border-slate-300 px-2 py-1 text-right font-mono font-semibold">
-                          {computed.totalWaistbandPieces} lá
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="border border-slate-300 px-2 py-1 font-mono">
-                          KEO-WB
-                        </td>
-                        <td className="border border-slate-300 px-2 py-1">
-                          Keo dựng ép mặt lưng ngoài (3.5 cm)
-                        </td>
-                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono">
-                          ×1
-                        </td>
-                        <td className="num border border-slate-300 px-2 py-1 text-right font-mono">
-                          {computed.totalInterfacingPieces} lá
-                        </td>
-                      </tr>
+                      {baseEntry.geometry.pieces.map((pc) => (
+                        <tr key={pc.id}>
+                          <td className="border border-slate-300 px-2 py-1 font-mono font-bold">
+                            {pc.code}
+                          </td>
+                          <td className="border border-slate-300 px-2 py-1">
+                            {pc.name} ({pc.englishName})
+                          </td>
+                          <td className="center border border-slate-300 px-2 py-1 text-center font-mono">
+                            ×{pc.cutQuantity}
+                          </td>
+                          <td className="num border border-slate-300 px-2 py-1 text-right font-mono font-semibold">
+                            {computed.totalGarments * pc.cutQuantity} lá
+                          </td>
+                        </tr>
+                      ))}
                       <tr>
                         <td className="border border-slate-300 px-2 py-1 font-mono">
                           PHU-LIEU
                         </td>
                         <td className="border border-slate-300 px-2 py-1">
-                          Dây kéo giọt nước 18 cm + Móc lưng
+                          {isJean
+                            ? 'Dây kéo 4 1/2" Navy + 1 Nút 27L Copper + 3 Đinh tán 14L Brass'
+                            : "Dây kéo giọt nước 18 cm + Keo ép lưng + Móc lưng"}
                         </td>
                         <td className="center border border-slate-300 px-2 py-1 text-center font-mono">
                           1 bộ
@@ -616,71 +595,133 @@ export function WorkOrderModal({
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td className="border border-slate-300 px-2 py-1 font-semibold">
-                      1. Vòng eo thành phẩm (Finished Waist)
-                    </td>
-                    {grading.entries.map((e) => (
-                      <td
-                        key={e.size}
-                        className="num border border-slate-300 px-2 py-1 text-right font-mono font-bold"
-                      >
-                        {e.measurements.waistCm.toFixed(1)}
-                      </td>
-                    ))}
-                    <td className="center border border-slate-300 px-2 py-1 text-center font-mono">
-                      ±0.5 cm
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="border border-slate-300 px-2 py-1">
-                      2. Dài tùng váy dưới chân lưng (Skirt Length)
-                    </td>
-                    {grading.entries.map((e) => (
-                      <td
-                        key={e.size}
-                        className="num border border-slate-300 px-2 py-1 text-right font-mono font-semibold"
-                      >
-                        {e.measurements.skirtLengthCm.toFixed(1)}
-                      </td>
-                    ))}
-                    <td className="center border border-slate-300 px-2 py-1 text-center font-mono">
-                      ±0.8 cm
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="border border-slate-300 px-2 py-1">
-                      3. Bản rộng lưng thành phẩm (Waistband Height)
-                    </td>
-                    {grading.entries.map((e) => (
-                      <td
-                        key={e.size}
-                        className="num border border-slate-300 px-2 py-1 text-right font-mono"
-                      >
-                        {WAISTBAND_HEIGHT_CM.toFixed(1)}
-                      </td>
-                    ))}
-                    <td className="center border border-slate-300 px-2 py-1 text-center font-mono">
-                      ±0.2 cm
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="border border-slate-300 px-2 py-1 text-slate-600">
-                      4. Bán kính cắt eo / lai tham chiếu (R_eo / R_lai)
-                    </td>
-                    {grading.entries.map((e) => (
-                      <td
-                        key={e.size}
-                        className="num border border-slate-300 px-2 py-1 text-right font-mono text-[10px] text-slate-600"
-                      >
-                        {roundCm(e.measurements.rWaistCm, 1)} /{" "}
-                        {roundCm(e.measurements.rHemCm, 1)}
-                      </td>
-                    ))}
-                    <td className="center border border-slate-300 px-2 py-1 text-center font-mono text-[10px]">
-                      ±0.2 cm
-                    </td>
-                  </tr>
+                  {isJean ? (
+                    <>
+                      <tr>
+                        <td className="border border-slate-300 px-2 py-1 font-semibold">
+                          1. Vòng eo đỉnh cạp (Waist @Top)
+                        </td>
+                        {grading.entries.map((e) => (
+                          <td key={e.size} className="num border border-slate-300 px-2 py-1 text-right font-mono font-bold">
+                            {e.measurements.waistCm.toFixed(1)}
+                          </td>
+                        ))}
+                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono">±1.2 cm (1/2&quot;)</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-slate-300 px-2 py-1 font-semibold">
+                          2. Vòng mông (Hip 3&quot; above crotch)
+                        </td>
+                        {grading.entries.map((e) => (
+                          <td key={e.size} className="num border border-slate-300 px-2 py-1 text-right font-mono font-semibold">
+                            {(e.measurements.hipCm ?? 0).toFixed(1)}
+                          </td>
+                        ))}
+                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono">±1.2 cm (1/2&quot;)</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-slate-300 px-2 py-1">
+                          3. Vòng đùi dưới đáy 1&quot; (Thigh)
+                        </td>
+                        {grading.entries.map((e) => (
+                          <td key={e.size} className="num border border-slate-300 px-2 py-1 text-right font-mono">
+                            {(e.measurements.thighCm ?? 0).toFixed(1)}
+                          </td>
+                        ))}
+                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono">±0.6 cm (1/4&quot;)</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-slate-300 px-2 py-1">
+                          4. Vòng gối 13&quot; / Vòng ống lai (Knee / Opening)
+                        </td>
+                        {grading.entries.map((e) => (
+                          <td key={e.size} className="num border border-slate-300 px-2 py-1 text-right font-mono">
+                            {(e.measurements.kneeCm ?? 0).toFixed(1)} / {(e.measurements.hemOpeningCm ?? 0).toFixed(1)}
+                          </td>
+                        ))}
+                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono">±0.6 / ±0.3 cm</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-slate-300 px-2 py-1">
+                          5. Dài trong (Inseam) • Đáy T/S (F/B Rise)
+                        </td>
+                        {grading.entries.map((e) => (
+                          <td key={e.size} className="num border border-slate-300 px-2 py-1 text-right font-mono text-[10px]">
+                            {(e.measurements.inseamCm ?? 0).toFixed(1)} • {(e.measurements.frontRiseCm ?? 0).toFixed(1)}/{(e.measurements.backRiseCm ?? 0).toFixed(1)}
+                          </td>
+                        ))}
+                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono text-[10px]">±1.2 / ±0.6 cm</td>
+                      </tr>
+                    </>
+                  ) : (
+                    <>
+                      <tr>
+                        <td className="border border-slate-300 px-2 py-1 font-semibold">
+                          1. Vòng eo thành phẩm (Finished Waist)
+                        </td>
+                        {grading.entries.map((e) => (
+                          <td
+                            key={e.size}
+                            className="num border border-slate-300 px-2 py-1 text-right font-mono font-bold"
+                          >
+                            {e.measurements.waistCm.toFixed(1)}
+                          </td>
+                        ))}
+                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono">
+                          ±0.5 cm
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="border border-slate-300 px-2 py-1">
+                          2. Dài tùng váy dưới chân lưng (Skirt Length)
+                        </td>
+                        {grading.entries.map((e) => (
+                          <td
+                            key={e.size}
+                            className="num border border-slate-300 px-2 py-1 text-right font-mono font-semibold"
+                          >
+                            {e.measurements.skirtLengthCm.toFixed(1)}
+                          </td>
+                        ))}
+                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono">
+                          ±0.8 cm
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="border border-slate-300 px-2 py-1">
+                          3. Bản rộng lưng thành phẩm (Waistband Height)
+                        </td>
+                        {grading.entries.map((e) => (
+                          <td
+                            key={e.size}
+                            className="num border border-slate-300 px-2 py-1 text-right font-mono"
+                          >
+                            {WAISTBAND_HEIGHT_CM.toFixed(1)}
+                          </td>
+                        ))}
+                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono">
+                          ±0.2 cm
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="border border-slate-300 px-2 py-1 text-slate-600">
+                          4. Bán kính cắt eo / lai tham chiếu (R_eo / R_lai)
+                        </td>
+                        {grading.entries.map((e) => (
+                          <td
+                            key={e.size}
+                            className="num border border-slate-300 px-2 py-1 text-right font-mono text-[10px] text-slate-600"
+                          >
+                            {roundCm(e.measurements.rWaistCm, 1)} /{" "}
+                            {roundCm(e.measurements.rHemCm, 1)}
+                          </td>
+                        ))}
+                        <td className="center border border-slate-300 px-2 py-1 text-center font-mono text-[10px]">
+                          ±0.2 cm
+                        </td>
+                      </tr>
+                    </>
+                  )}
                 </tbody>
               </table>
 

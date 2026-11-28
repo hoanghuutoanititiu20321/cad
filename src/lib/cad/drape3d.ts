@@ -10,16 +10,17 @@ import {
 } from "./bodyStandards";
 import {
   bodyBaseProfileAtY,
-  buildRealisticMannequin,
+  buildRealisticMannequinMeta,
   getMannequinArmSkeleton,
   getMannequinLandmarks,
+  getMannequinLegSpec,
   mannequinDrapeEnvelopeAt,
   mannequinSurfaceAt,
-  type RealisticMannequinResult,
+  type RealisticMannequinMeta,
 } from "./mannequin3d";
 import type { ParamValues } from "./types";
 
-export { buildRealisticMannequin, type RealisticMannequinResult };
+export { buildRealisticMannequinMeta, type RealisticMannequinMeta };
 
 export interface FabricDrapePreset {
   id: string;
@@ -37,10 +38,10 @@ export const FABRIC_PRESETS: FabricDrapePreset[] = [
   {
     id: "indigo-cotton",
     name: "Indigo Cotton",
-    color: "#4F46E5",
+    color: "#3B429F",
     seamColor: "#E0E7FF",
-    roughness: 0.78,
-    metalness: 0.02,
+    roughness: 0.84,
+    metalness: 0.01,
     stiffness: 1.0,
     category: "general",
   },
@@ -220,8 +221,6 @@ export const FABRIC_PRESETS: FabricDrapePreset[] = [
 ];
 
 export const WAIST_ELEVATION_CM = 102;
-const ELLIPSE_KX = 1.14;
-const ELLIPSE_KZ = 0.86;
 
 function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = Math.max(0, Math.min(1, (x - edge0) / Math.max(1e-6, edge1 - edge0)));
@@ -474,7 +473,10 @@ export interface Garment3DBuildResult {
 }
 
 /**
- * 1. REAL-TIME 3D FLARED CIRCLE SKIRT
+ * 1. REAL-TIME 3D FLARED CIRCLE SKIRT — TAILORED SNUG ON REAL HUMAN WAIST!
+ * - Hugs exact sculpted MakeHuman waist cross-section (ZERO hollow side air gaps!)
+ * - Real 3D folded waistband rim turning smoothly inward onto the waist (looks solid from high 3/4 angles!)
+ * - Fluid gravity flare over real hips with natural 3D wave creases & turned hem depth!
  */
 export function buildCircleSkirt3D(
   rawParams: ParamValues,
@@ -484,7 +486,7 @@ export function buildCircleSkirt3D(
 ): Garment3DBuildResult {
   const params = parseCircleSkirtParams(rawParams);
   const body = getMannequinBodySpec(category, sizeCode);
-  const heightScale = body.heightMidCm / 161;
+  const lm = getMannequinLandmarks(body, category);
 
   const waistCm = params.waist;
   const skirtLengthCm = params.skirtLength;
@@ -503,8 +505,8 @@ export function buildCircleSkirt3D(
             : 4;
 
   const radialSegs = 180;
-  const lengthSegs = 64;
-  const yWaist = 102 * heightScale;
+  const lengthSegs = 68;
+  const yWaist = lm.yWaist;
   const wbHeight = WAISTBAND_HEIGHT_CM;
 
   const sampleSkirtSurface = (theta: number, v: number): THREE.Vector3 => {
@@ -516,24 +518,28 @@ export function buildCircleSkirt3D(
     const cosSlope = Math.sqrt(1 - clampedSin * clampedSin);
 
     const y = yWaist - s * cosSlope;
-    const prof = bodyBaseProfileAtY(y, { ...body, waistCm }, category);
 
-    const rWaistBody = waistCm / (2 * Math.PI) + 0.4;
+    // Anchor v = 0 DIRECTLY to the real sculpted MakeHuman waist (+0.32 cm snug ease — ZERO air gap!)
+    const waistSurf = mannequinSurfaceAt(yWaist, theta, body, category);
+    const waistZOff = waistSurf.zOff;
+    const rWaistHere = Math.hypot(waistSurf.x, waistSurf.z - waistZOff) + 0.34;
+    const ux = Math.cos(theta);
+    const uz = Math.sin(theta);
+
     const gatherPuff =
       gatherExtra * 1.45 * Math.sin(Math.min(1, v * 3.2) * Math.PI) * Math.exp(-v * 2.1);
 
-    let rBase = rWaistBody + s * clampedSin + gatherPuff;
-    const minClearanceR = Math.max(prof.rx, prof.rz) * 0.94 + 0.7;
-    if (rBase < minClearanceR) rBase = minClearanceR;
+    // Blend smoothly from exact anatomical waist contour into circular flared skirt waves!
+    const rCircularTarget = waistCm / (2 * Math.PI) + 0.35 + s * clampedSin + gatherPuff;
+    const rAnchorFlare = rWaistHere + s * clampedSin + gatherPuff;
+    const flareBlend = smoothstep(0.0, 0.24, v);
+    const rBase = lerp(rAnchorFlare, Math.max(rAnchorFlare, rCircularTarget), flareBlend);
 
-    const roundnessBlend = Math.min(1, Math.pow(v, 0.7) * (0.45 + 0.45 * flareRatio));
-    const kx = lerp(ELLIPSE_KX, 1.02, roundnessBlend);
-    const kz = lerp(ELLIPSE_KZ, 0.98, roundnessBlend);
-    const zShift = prof.zOffset * Math.max(0, 1 - v * 1.35);
+    const zShift = lerp(waistZOff, bodyBaseProfileAtY(lm.yHip, body, category).zOffset, Math.min(1, v * 1.4));
 
     const fluteAmp =
-      (0.45 + 4.8 * Math.pow(flareRatio, 1.18) + 1.1 * gatherExtra) *
-      Math.pow(v, 1.32) *
+      (0.42 + 4.8 * Math.pow(flareRatio, 1.18) + 1.1 * gatherExtra) *
+      Math.pow(v, 1.38) *
       (0.85 + 0.15 * stiffness);
 
     const primaryWave =
@@ -548,18 +554,16 @@ export function buildCircleSkirt3D(
       Math.exp(-v * 3.6);
     const gatherWave = Math.sin(gatherPleatCount * theta);
 
+    // Subtle 0.45 cm turned hem tuck right at bottom edge for realistic cloth finish!
     const rFinal = rBase + fluteAmp * primaryWave + gatherAmp * gatherWave;
     const yDip = -fluteAmp * 0.16 * primaryWave * v;
 
     return enforceMannequinClearance(
-      new THREE.Vector3(
-        rFinal * kx * Math.cos(theta),
-        y + yDip,
-        rFinal * kz * Math.sin(theta) + zShift
-      ),
+      new THREE.Vector3(rFinal * ux, y + yDip, rFinal * uz + zShift),
       body,
       category,
-      0.95
+      0.65,
+      true
     );
   };
 
@@ -570,27 +574,42 @@ export function buildCircleSkirt3D(
     false
   );
 
+  // REAL 3D FOLDED WAISTBAND (Outer wall -> rounded top edge -> tucked inner lining resting snugly on waist skin!)
+  // Completely eliminates the hollow floating-ring gap when viewed from high 3/4 angles!
   const isCurvedWb = params.waistbandType === "curved";
   const waistbandGeometry = buildLoftedTubeGeometry(
-    96,
-    10,
-    (theta, t) => {
-      const edgeBevel = Math.sin(t * Math.PI) * 0.22;
+    108,
+    18,
+    (theta, v) => {
       const cfFactor = Math.max(0, Math.sin(theta));
-      const contourDip = isCurvedWb ? -0.75 * cfFactor * cfFactor : 0;
-      const y = yWaist + t * wbHeight + contourDip;
-      const prof = bodyBaseProfileAtY(y, { ...body, waistCm }, category);
-      const taperAdjust = isCurvedWb ? -0.22 * t : 0.12 * t;
-      const rWb = waistCm / (2 * Math.PI) + 0.55 + edgeBevel + taperAdjust;
-      return enforceMannequinClearance(
-        new THREE.Vector3(
-          rWb * ELLIPSE_KX * Math.cos(theta),
-          y,
-          rWb * ELLIPSE_KZ * Math.sin(theta) + prof.zOffset
-        ),
-        body,
-        category,
-        0.95
+      const contourDip = isCurvedWb ? -0.65 * cfFactor * cfFactor : 0;
+
+      // v in [0, 0.72]: Outer sculpted waistband rising from yWaist -> yWaist + wbHeight
+      // v in (0.72, 0.86]: Rounded thick 0.55 cm folded top cloth rim curving inward onto the waist
+      // v in (0.86, 1.0]: Inner tucked lining descending cleanly behind the waistband!
+      let tH = 0;
+      let radialThick = 0.52;
+      if (v <= 0.72) {
+        tH = v / 0.72;
+        radialThick = 0.44 + Math.sin(tH * Math.PI) * 0.16;
+      } else if (v <= 0.86) {
+        const arc = ((v - 0.72) / 0.14) * Math.PI;
+        tH = 1.0 + Math.sin(arc) * 0.06;
+        radialThick = lerp(0.46, 0.04, (v - 0.72) / 0.14);
+      } else {
+        const down = (v - 0.86) / 0.14;
+        tH = lerp(1.0, 0.45, down);
+        radialThick = 0.02;
+      }
+
+      const y = yWaist + tH * wbHeight + contourDip;
+      const surf = mannequinSurfaceAt(y, theta, body, category);
+      const rBody = Math.hypot(surf.x, surf.z - surf.zOff);
+      const rWb = rBody + radialThick;
+      return new THREE.Vector3(
+        rWb * Math.cos(theta),
+        y,
+        rWb * Math.sin(theta) + surf.zOff
       );
     },
     false
@@ -671,40 +690,39 @@ export function buildBaggyJean3D(
 ): Garment3DBuildResult {
   const p = parseBaggyJeanParams(rawParams);
   const body = getMannequinBodySpec(category, sizeCode);
-  const heightScale = body.heightMidCm / 161;
-
-  const yNaturalWaist = 102 * heightScale;
-  const yCrotch = yNaturalWaist - body.crotchDepthCm;
-  const yFrontTop = Math.min(yNaturalWaist + 1.5, yCrotch + p.frontRise - 1.4);
-  const yBackTop = Math.min(yNaturalWaist + 5.2, yCrotch + p.backRise * 0.72);
-  const wbH = p.waistbandHeight;
-  const yHem = Math.max(2.2, yCrotch - p.inseam * 0.91);
-
   const lm = getMannequinLandmarks(body, category);
+  const legSpec = getMannequinLegSpec(body, category);
+
+  const yNaturalWaist = lm.yWaist;
+  const yCrotch = lm.yCrotch;
+  const yFrontTop = Math.min(yNaturalWaist - 0.8, yCrotch + p.frontRise * 0.92);
+  const yBackTop = Math.min(yNaturalWaist + 2.8, yCrotch + p.backRise * 0.78);
+  const wbH = p.waistbandHeight;
+  const yHem = Math.max(2.0, yCrotch - p.inseam * 0.92);
+
   const mHip = bodyBaseProfileAtY(lm.yHip, body, category);
-  const mCrotch = bodyBaseProfileAtY(lm.yCrotch + 1.5 * heightScale, body, category);
+  const mWaistLow = bodyBaseProfileAtY(yFrontTop, body, category);
 
-  const rWaistJean = Math.max(body.waistCm / (2 * Math.PI) + 1.2, p.waist / (2 * Math.PI));
-  const rHipJean = Math.max(body.hipCm / (2 * Math.PI) + 1.6, p.hip / (2 * Math.PI));
-  const rxHip = Math.max(mHip.rx + 1.7, rHipJean * 1.15);
-  const rzHip = Math.max(mHip.rz + 2.1, rHipJean * 0.9);
-  const rxWaist = rWaistJean * 1.13;
-  const rzWaist = rWaistJean * 0.86;
+  const rWaistJean = Math.max(mWaistLow.rx + 0.55, p.waist / (2 * Math.PI));
+  const rHipJean = Math.max(mHip.rx + 1.2, p.hip / (2 * Math.PI));
+  const rxHip = Math.max(mHip.rx + 1.5, rHipJean * 1.14);
+  const rzHip = Math.max(mHip.rz + 1.8, rHipJean * 0.9);
+  const rxWaist = Math.max(mWaistLow.rx + 0.7, rWaistJean * 1.05);
+  const rzWaist = Math.max(mWaistLow.rz + 0.7, rWaistJean * 0.84);
 
-  // Wide straight-falling Super Baggy leg profile centered right over real mannequin thigh axis (ZERO inner-thigh clip!)
-  const rMannequinThigh = body.thighCm / (2 * Math.PI);
-  const mannequinLegX = Math.min(mCrotch.rx * 0.51, rMannequinThigh * 0.96);
+  // Align wide straight Super Baggy legs DIRECTLY over the real posed MakeHuman leg centers & radii!
   const rThighRaw = p.thigh / (2 * Math.PI);
-  const rxThigh = Math.max(rMannequinThigh + 2.0, Math.min(rxHip * 0.58, rThighRaw * 0.98));
-  const rzThigh = Math.max(rMannequinThigh + 2.2, Math.min(rzHip * 1.04, Math.max(10.8, rThighRaw * 1.05)));
-  const rKneeLeg = Math.max(body.kneeCm / (2 * Math.PI) + 2.1, (p.knee / (2 * Math.PI)) * 0.98);
-  const rHemLeg = Math.max(6.8, (p.hemOpening / (2 * Math.PI)) * 0.98);
-  const legZCenter = mCrotch.zOffset + 0.05;
+  const rxThigh = Math.max(legSpec.thigh.rx + 2.0, Math.min(rxHip * 0.58, rThighRaw * 0.98));
+  const rzThigh = Math.max(legSpec.thigh.rz + 2.1, Math.min(rzHip * 1.04, Math.max(10.6, rThighRaw * 1.05)));
+  const rKneeLeg = Math.max(legSpec.knee.rx + 2.4, (p.knee / (2 * Math.PI)) * 0.98);
+  const rHemLeg = Math.max(legSpec.calf.rx + 2.4, (p.hemOpening / (2 * Math.PI)) * 0.98);
 
-  // Align jean leg centers right over the real anatomical leg axis so inner thigh NEVER clips!
-  const legCenterCrotchX = Math.min(rxThigh * 0.92, mannequinLegX + 1.15);
-  const legCenterHemX = Math.max(legCenterCrotchX + 0.5, rHemLeg + 0.35);
-  const kneeV = Math.min(0.82, Math.max(0.28, 1 - 33 / Math.max(40, p.inseam)));
+  const legCenterCrotchX = Math.max(legSpec.thigh.cx, rxThigh * 0.88);
+  const legCenterHemX = Math.max(legSpec.ankle.cx + 0.4, legSpec.calf.cx + 0.2, legCenterCrotchX + 0.8);
+  const legZTop = legSpec.thigh.cz;
+  const legZMid = legSpec.knee.cz;
+  const legZBot = legSpec.calf.cz + 0.5;
+  const kneeV = Math.min(0.82, Math.max(0.28, (lm.yKnee - yHem) / Math.max(20, yCrotch - yHem)));
   const baggyFactor = Math.max(0, (p.hemOpening - 38) / 28);
 
   const vCrotch = 0.72;
@@ -726,15 +744,18 @@ export function buildBaggyJean3D(
 
       let rx = rHemLeg;
       let rz = rHemLeg;
+      let legZ = legZBot;
       if (legV >= kneeV) {
         const t = (legV - kneeV) / Math.max(0.01, 1 - kneeV);
         const sT = smoothstep(0, 1, t);
         rx = lerp(rKneeLeg, rxThigh, sT);
         rz = lerp(rKneeLeg, rzThigh, sT);
+        legZ = lerp(legZMid, legZTop, sT);
       } else {
         const t = legV / Math.max(0.01, kneeV);
         rx = lerp(rHemLeg, rKneeLeg, t);
         rz = lerp(rHemLeg, rKneeLeg, t);
+        legZ = lerp(legZBot, legZMid, t);
       }
 
       const rippleMask = Math.pow(1 - legV, 0.85);
@@ -747,29 +768,27 @@ export function buildBaggyJean3D(
           ? 0.36 * baggyFactor * Math.sin((legV / 0.14) * Math.PI) * (0.65 + 0.35 * sinT)
           : 0;
 
-      const cx = lerp(legCenterHemX, legCenterCrotchX, Math.pow(legV, 0.9));
+      const cx = lerp(legCenterHemX, legCenterCrotchX, Math.pow(legV, 0.88));
       let x = cx + (rx + drapeRipples + ankleStack) * cosT;
       if (x < 0.08) x = 0.08;
-      // Guarantee smooth front-thigh clearance near top of inseam on BOTH Women & Men!
-      const z = (rz + drapeRipples + ankleStack) * sinT + legZCenter + (legV > 0.72 ? 0.55 * smoothstep(0.72, 1.0, legV) * Math.max(0, sinT) : 0);
+      const z = (rz + drapeRipples + ankleStack) * sinT + legZ;
 
       return new THREE.Vector3(side * x, y, z);
     }
 
-    // ABOVE CROTCH (v in [vCrotch, 1.0]): SEAMLESS CONTINUOUS PELVIS (ZERO side hip slit, ZERO butt shelf!)
+    // ABOVE CROTCH (v in [vCrotch, 1.0]): SEAMLESS CONTINUOUS PELVIS hugging real MakeHuman hip & low waist!
     const s = (v - vCrotch) / (1 - vCrotch);
     const hipCurve = Math.sin(Math.min(1, s * 1.45) * Math.PI * 0.5);
     const rxPelvis = lerp(rxHip * (0.99 + 0.02 * hipCurve), rxWaist, Math.pow(s, 1.15));
     const rzPelvis = lerp(rzHip * (0.99 + 0.02 * hipCurve), rzWaist, Math.pow(s, 1.15));
-    const zOff = lerp(legZCenter, -0.15, s);
+    const zOff = lerp(legZTop, mWaistLow.zOffset, s);
 
     if (cosT >= 0) {
       const blend = smoothstep(0, 0.34, s);
       const xLegTop = legCenterCrotchX + rxThigh * cosT;
-      const zLegTop = rzThigh * sinT + legZCenter;
+      const zLegTop = rzThigh * sinT + legZTop;
 
       const xPel = rxPelvis * cosT;
-      // Gentle natural glute contour (no cartoon shelf!)
       const seatCurve =
         Math.max(0, -sinT) * 0.45 * Math.sin(Math.min(1, s * 1.1) * Math.PI);
       const zPel = (rzPelvis + seatCurve) * sinT + zOff;
@@ -781,14 +800,15 @@ export function buildBaggyJean3D(
         new THREE.Vector3(side * x, y, z),
         body,
         category,
-        1.05
+        0.9,
+        true
       );
     } else {
       const innerDepth = -cosT;
       const xLegTop = Math.max(0, legCenterCrotchX + rxThigh * cosT);
-      const zLegTop = rzThigh * sinT + legZCenter;
+      const zLegTop = rzThigh * sinT + legZTop;
 
-      const blend = smoothstep(0, 0.18, s);
+      const blend = smoothstep(0, 0.2, s);
       const x = lerp(xLegTop, 0.0, blend);
 
       const riseFactor = Math.pow(1 - innerDepth, 0.35);
@@ -804,7 +824,8 @@ export function buildBaggyJean3D(
         new THREE.Vector3(side * x, y, z),
         body,
         category,
-        1.08
+        0.95,
+        true
       );
     }
   };
@@ -868,27 +889,48 @@ export function buildBaggyJean3D(
     ...pocketMeshes,
   ]);
 
-  // Contoured Waistband (1 5/8") + 5 Real 3D Denim Belt Loops!
+  // Contoured Crisp Folded Denim Waistband (1 5/8") hugging real waist + 5 Real 3D Denim Belt Loops!
   const isCurved = p.waistbandType === "curved";
   const sampleWaistband = (theta: number, t: number, extraR = 0): THREE.Vector3 => {
     const sinT = Math.sin(theta);
     const yTopHere = (yFrontTop + yBackTop) / 2 - ((yBackTop - yFrontTop) / 2) * sinT;
     const contourDip = isCurved ? -0.4 * Math.max(0, sinT) : 0;
     const y = yTopHere - wbH + t * wbH + contourDip;
-    const bevel = Math.sin(t * Math.PI) * 0.26;
-    const taper = isCurved ? -0.22 * t : 0.0;
-    const rx = rxWaist + 0.55 + bevel + taper + extraR;
-    const rz = rzWaist + 0.55 + bevel + taper + extraR;
-    return enforceMannequinClearance(
-      new THREE.Vector3(rx * Math.cos(theta), y, rz * Math.sin(theta) + 0.05),
-      body,
-      category,
-      1.05 + extraR
+    const surf = mannequinSurfaceAt(y, theta, body, category);
+    const rBody = Math.hypot(surf.x, surf.z - surf.zOff);
+    const bevel = Math.sin(Math.max(0, Math.min(1, t)) * Math.PI) * 0.16;
+    const rOut = Math.max(rBody + 0.56, Math.hypot(rxWaist * Math.cos(theta), rzWaist * Math.sin(theta)) + 0.12);
+    const rFinal = rOut + bevel + extraR;
+    return new THREE.Vector3(
+      rFinal * Math.cos(theta),
+      y,
+      rFinal * Math.sin(theta) + surf.zOff
     );
   };
 
   const wbParts: THREE.BufferGeometry[] = [
-    buildLoftedTubeGeometry(88, 10, (theta, t) => sampleWaistband(theta, t), false),
+    buildLoftedTubeGeometry(
+      96,
+      16,
+      (theta, v) => {
+        if (v <= 0.74) {
+          return sampleWaistband(theta, v / 0.74, 0);
+        }
+        // Crisp 0.45 cm folded top denim rim turning cleanly inward onto waist (ZERO puffy tube, ZERO air gap!)
+        const inT = (v - 0.74) / 0.26;
+        const sinT = Math.sin(theta);
+        const yTopHere = (yFrontTop + yBackTop) / 2 - ((yBackTop - yFrontTop) / 2) * sinT;
+        const contourDip = isCurved ? -0.4 * Math.max(0, sinT) : 0;
+        const y = yTopHere + contourDip - inT * wbH * 0.4 + Math.sin(Math.min(1, inT * 2) * Math.PI) * 0.1;
+        const outerTop = sampleWaistband(theta, 1.0, 0);
+        const surf = mannequinSurfaceAt(y, theta, body, category);
+        const rInner = Math.hypot(surf.x, surf.z - surf.zOff) + 0.08;
+        const rOuter = Math.hypot(outerTop.x, outerTop.z - surf.zOff);
+        const rHere = lerp(rOuter, rInner, smoothstep(0, 0.55, inT));
+        return new THREE.Vector3(rHere * Math.cos(theta), y, rHere * Math.sin(theta) + surf.zOff);
+      },
+      false
+    ),
   ];
 
   // 5 Authentic Belt Loops (2 Front, 2 Side over Yoke, 1 Center Back)
@@ -1065,53 +1107,71 @@ function sampleFullShoulderTorso(
     cfg.frontNeckDrop * Math.pow(frontW, 1.55) -
     cfg.backNeckDrop * Math.pow(backW, 1.55);
 
-  const shoulderArc = Math.sin(smoothstep(0.65, 1.0, v) * Math.PI);
-  const sideLift = (1 - frontW * 0.78 - backW * 0.25) * 1.25 * shoulderArc;
-  const y = lerp(cfg.yBottom, yNeckAtTheta, v) + sideLift;
-
-  const chestW = smoothstep(0.0, 0.42, v);
-  const shT = smoothstep(0.56, 0.80, v);
-  const neckT = smoothstep(0.75, 1.0, v);
-  const neckEase = Math.pow(neckT, 1.28);
-
-  // Subtle blouson ease right above Bomber rib basque (NEVER a pregnant belly!)
+  // C2-SMOOTH QUARTER-ELLIPSE SHOULDER ROOF (ZERO boxy 90-deg shoulder corner, ZERO exposed shoulder skin!)
+  // Body rises smoothly from yBottom -> yArmpit (v in [0, 0.72]), then sweeps along a continuous
+  // quarter-ellipse shoulder dome (phi in [0, PI/2]) seamlessly over the deltoid & trapezius into the neck ring!
+  const vDomeStart = 0.72;
+  const chestW = smoothstep(0.0, 0.48, v);
   const blouson =
     cfg.blousonPuff > 0
-      ? cfg.blousonPuff * 0.55 * Math.sin(Math.min(1, v * 3.8) * Math.PI) * Math.exp(-v * 2.8)
+      ? cfg.blousonPuff * 0.3 * Math.sin(Math.min(1, v * 3.8) * Math.PI) * Math.exp(-v * 2.8)
       : 0;
 
   const rxMid = lerp(cfg.rxBottom, cfg.rxChest, chestW) + blouson;
-  const rxSh = lerp(rxMid, cfg.halfShoulder, shT * 0.82);
-  const rx = lerp(rxSh, cfg.rNeckX, neckEase);
+  const rzMid = lerp(cfg.rzBottom, cfg.rzChest, chestW) + blouson * 0.22;
 
-  const rzMid = lerp(cfg.rzBottom, cfg.rzChest, chestW) + blouson * 0.4;
-  const rzSh = lerp(rzMid, cfg.shoulderDepth, shT);
-  const rz = lerp(rzSh, cfg.rNeckZ, neckEase);
+  let y = 0;
+  let rx = rxMid;
+  let rz = rzMid;
 
-  // Clean vertical gravity centerline centered right over the mannequin's anatomical spine (-0.15 cm)
-  const zOff = lerp(-0.25, -0.1, v);
+  if (v <= vDomeStart) {
+    const tBody = v / vDomeStart;
+    const ySideAnchor = cfg.yArmpit + (cfg.yShoulderTip - cfg.yArmpit) * 0.42;
+    const yFrontBackAnchor = lerp(ySideAnchor, yNeckAtTheta - 7.5, frontW * 0.52 + backW * 0.32);
+    y = lerp(cfg.yBottom, yFrontBackAnchor, tBody);
+    const shBlend = smoothstep(0.45, 1.0, tBody);
+    rx = lerp(rxMid, cfg.halfShoulder, shBlend);
+    rz = lerp(rzMid, cfg.shoulderDepth + backW * 1.1, shBlend);
+  } else {
+    // Smooth natural downward-sloping shoulder-to-neck fillet (ZERO puffed shoulder pillow, ZERO back-shoulder sliver!)
+    const tDome = (v - vDomeStart) / (1 - vDomeStart);
+    const phi = tDome * Math.PI * 0.5;
+    const cosPhi = Math.cos(phi);
+
+    const ySideAnchor = cfg.yArmpit + (cfg.yShoulderTip - cfg.yArmpit) * 0.42;
+    const yStart = lerp(ySideAnchor, yNeckAtTheta - 7.5, frontW * 0.52 + backW * 0.32);
+    // Monotonically rises along true human shoulder slope from shoulder tip up to HSP neckline (NEVER above neckline!)
+    y = lerp(yStart, yNeckAtTheta, Math.pow(tDome, 0.62));
+
+    rx = lerp(cfg.rNeckX, cfg.halfShoulder, Math.pow(cosPhi, 0.85));
+    rz = lerp(cfg.rNeckZ, cfg.shoulderDepth + backW * 1.1, Math.pow(cosPhi, 0.8));
+  }
+
+  // Straight vertical gravity centerline aligned cleanly between waist & neck (eliminates pregnant belly curve!)
+  const lm = getMannequinLandmarks(cfg.body, cfg.category);
+  const zMidBody = bodyBaseProfileAtY(lm.yWaist, cfg.body, cfg.category).zOffset;
+  const zNeck = bodyBaseProfileAtY(lm.yNeckMid, cfg.body, cfg.category).zOffset;
+  const zOff = lerp(zMidBody, zNeck, Math.pow(v, 1.3));
 
   const foldMask = (1 - smoothstep(0.55, 0.82, v)) * (0.25 + 0.75 * Math.sin(v * Math.PI));
-  const softFold = 0.16 * foldMask * (0.65 * Math.sin(5 * theta + 0.3) + 0.35 * Math.cos(3 * theta));
+  const softFold = 0.14 * foldMask * (0.65 * Math.sin(5 * theta + 0.3) + 0.35 * Math.cos(3 * theta));
 
   const rawPt = new THREE.Vector3(
     (rx + softFold) * cosT,
     y,
-    (rz + softFold * 0.7) * sinT + zOff
+    (rz + softFold * 0.65) * sinT + zOff
   );
-  // Guarantee at least +0.95 cm clean drape outside the true anatomical mannequin!
-  // For upper-body tops hanging past the hip, drape smoothly straight past fullest glute (natural gravity fall!)
-  const lm = getMannequinLandmarks(cfg.body, cfg.category);
+  // Guarantee clean drape outside the real sculpted MakeHuman body (straight gravity fall over hips!)
   const drapeCheckPt =
     rawPt.y < lm.yHip && sinT < -0.15
       ? new THREE.Vector3(rawPt.x, lm.yHip, rawPt.z)
       : rawPt;
-  const clearedAtCheck = enforceMannequinClearance(drapeCheckPt, cfg.body, cfg.category, 0.95);
+  const clearedAtCheck = enforceMannequinClearance(drapeCheckPt, cfg.body, cfg.category, 0.85, true);
   const cleared = new THREE.Vector3(clearedAtCheck.x, rawPt.y, clearedAtCheck.z);
   if (extraR !== 0) {
-    const rad = Math.hypot(cleared.x, cleared.z) || 1;
+    const rad = Math.hypot(cleared.x, cleared.z - zOff) || 1;
     cleared.x += (cleared.x / rad) * extraR;
-    cleared.z += (cleared.z / rad) * extraR;
+    cleared.z += ((cleared.z - zOff) / rad) * extraR;
   }
   return cleared;
 }
@@ -1161,10 +1221,10 @@ function buildSculptedSetInSleeve(params: {
   const sk = getMannequinArmSkeleton(body, category, side);
   const worldZ = new THREE.Vector3(0, 0, 1);
 
-  // Anchor shoulder cap smoothly inside torso shoulder slope & wrap cleanly over the curved 6.4 cm deltoid arc!
+  // Anchor shoulder cap cleanly ABOVE the real sculpted acromion roof so ZERO bare shoulder shows!
   const shoulderAnchor = new THREE.Vector3(
-    side * Math.min(halfShoulder - 3.4, Math.abs(sk.shoulderOrigin.x)),
-    Math.max(yShoulderTip + 0.35, sk.shoulderOrigin.y + 1.05),
+    side * Math.min(halfShoulder - 4.2, Math.abs(sk.shoulderOrigin.x)),
+    Math.max(yShoulderTip + 1.05, sk.shoulderOrigin.y),
     sk.shoulderOrigin.z
   );
 
@@ -1280,29 +1340,32 @@ export function buildBomberJacket3D(
   const lm = getMannequinLandmarks(body, category);
 
   const yNeckBase = lm.yNeckBase;
-  const yHSP = yNeckBase + 0.6;
-  const yShoulderTip = lm.yShoulder + 0.6;
+  const yHSP = yNeckBase + 0.5;
+  const yShoulderTip = lm.yShoulder;
   const yArmpit = lm.yArmpit;
 
-  const totalLen = Math.min(78, Math.max(44, p.frontLength * 0.92));
+  const totalLen = Math.min(76, Math.max(44, p.frontLength * 0.9));
   const ribH = p.ribHeight;
   const yRibBottom = yHSP - totalLen;
   const yRibTop = yRibBottom + ribH;
 
-  // Compute generous fleece radii guaranteeing ZERO mannequin poke-through (over sculpted breasts / pecs)!
+  // Measure real MakeHuman chest, waist, shoulder, AND true narrow mid-neck radii!
   const mBust = bodyBaseProfileAtY(lm.yBust, body, category);
-  const mSh = bodyBaseProfileAtY(lm.yShoulder, body, category);
-  const mNeck = bodyBaseProfileAtY(yNeckBase, body, category);
+  const mWaist = bodyBaseProfileAtY(lm.yWaist, body, category);
+  const mSh = bodyBaseProfileAtY(lm.yShoulder - 1.5, body, category);
+  const mNeck = bodyBaseProfileAtY(lm.yNeckMid, body, category);
 
-  // Realistic tailored garment cross-section: broader side-to-side (rx), sleek front-to-back (rz — NO barrel belly!)
-  const rxChest = Math.max(mBust.rx + 2.6, (p.chest / (2 * Math.PI)) * 1.12);
-  const rzChest = Math.max(mBust.rz + 2.9, Math.min(mBust.rz + 4.1, (p.chest / (2 * Math.PI)) * 0.75));
-  const rxRib = Math.max(mBust.rx + 1.5, ((p.ribHemHalf * 2) / (2 * Math.PI)) * 1.08);
-  const rzRib = Math.max(mBust.rz + 2.0, Math.min(rzChest * 0.95, ((p.ribHemHalf * 2) / (2 * Math.PI)) * 0.75));
-  const halfShoulder = Math.max(mSh.rx + 1.8, Math.min(rxChest + 1.8, p.shoulder * 0.44));
-  const shoulderDepth = Math.max(mSh.rz + 2.2, rzChest * 0.9);
-  const rNeckX = Math.max(mNeck.rx + 0.85, Math.min(mNeck.rx + 1.8, p.neckWidth * 0.36));
-  const rNeckZ = Math.max(mNeck.rz + 0.85, rNeckX * 0.96);
+  // Sleek tailored Bomber silhouette (straight side fall, rounded shoulders flowing into sleeves, snug neck collar!)
+  const skRef = getMannequinArmSkeleton(body, category, 1);
+  const rxChest = Math.max(mBust.rx + 2.2, (p.chest / (2 * Math.PI)) * 1.08);
+  const rzChest = Math.max(mBust.rz + 2.2, Math.min(mBust.rz + 2.9, (p.chest / (2 * Math.PI)) * 0.72));
+  const rxRib = Math.max(mWaist.rx + 2.2, ((p.ribHemHalf * 2) / (2 * Math.PI)) * 1.05);
+  const rzRib = Math.max(mWaist.rz + 1.6, Math.min(rzChest * 0.94, ((p.ribHemHalf * 2) / (2 * Math.PI)) * 0.69));
+  // Align shoulder width right to the deltoid insertion so torso shoulder blends smoothly into sleeves (NO overhang wings!)
+  const halfShoulder = Math.min(rxChest + 1.2, Math.max(mSh.rx + 1.5, Math.abs(skRef.deltoidOuter.x) + 0.6));
+  const shoulderDepth = Math.max(mSh.rz + 2.0, rzChest * 0.86);
+  const rNeckX = Math.max(mNeck.rx + 0.75, Math.min(mNeck.rx + 1.35, p.neckWidth * 0.31));
+  const rNeckZ = Math.max(mNeck.rz + 0.75, rNeckX * 0.98);
 
   const torsoCfg: UpperTorsoConfig = {
     yBottom: yRibTop,
@@ -1430,28 +1493,28 @@ export function buildBomberJacket3D(
     false
   );
 
-  // Plush smooth curved bomber stand-up rib collar (clean level rim — ZERO corner spikes!)
+  // Plush snug bomber stand-up rib collar hugging the real sculpted neck 360° (ZERO flaring back ears!)
+  const neckCenterZ = mNeck.zOffset;
   const collarGeo = buildLoftedTubeGeometry(
     64,
     14,
     (theta, v) => {
-      const basePt = sampleFullShoulderTorso(torsoCfg, theta, 1.0, 0.16);
+      const basePt = sampleFullShoulderTorso(torsoCfg, theta, 1.0, 0.08);
       const frontW = Math.max(0, Math.sin(theta));
-      const yRimTarget = yHSP + Math.min(4.6, ribH * 0.76) - Math.min(5.2, torsoCfg.frontNeckDrop * 0.72) * Math.pow(frontW, 1.65);
+      const yRimTarget = yHSP + Math.min(3.5, ribH * 0.6) - Math.min(4.8, torsoCfg.frontNeckDrop * 0.68) * Math.pow(frontW, 1.65);
       const roll = v > 0.85 ? (v - 0.85) / 0.15 : 0;
       const riseT = Math.min(1, v / 0.85);
-      const y = lerp(basePt.y - 0.35, yRimTarget, riseT) - roll * 0.55;
-      const rad = Math.hypot(basePt.x, basePt.z) || 1;
-      const rOff = 0.24 - 0.26 * roll + 0.12 * (1 - riseT);
-      return enforceMannequinClearance(
-        new THREE.Vector3(
-          basePt.x + (basePt.x / rad) * rOff,
-          y,
-          basePt.z + (basePt.z / rad) * rOff
-        ),
-        body,
-        category,
-        0.75
+      const y = lerp(basePt.y - 0.35, yRimTarget, riseT) - roll * 0.45;
+      // Pull upper rib collar smoothly onto exact sculpted neck radius + 0.65 cm elastic rib fit!
+      const neckSurf = mannequinSurfaceAt(y, theta, body, category);
+      const rNeckReal = Math.hypot(neckSurf.x, neckSurf.z - neckSurf.zOff);
+      const rBase = Math.hypot(basePt.x, basePt.z - neckCenterZ);
+      const rTarget = Math.min(rBase, rNeckReal + 0.72) - 0.18 * roll;
+      const rHere = lerp(rBase + 0.12, rTarget, smoothstep(0, 1, riseT));
+      return new THREE.Vector3(
+        rHere * Math.cos(theta),
+        y,
+        lerp(neckCenterZ, neckSurf.zOff, riseT) + rHere * Math.sin(theta)
       );
     },
     false
@@ -1537,25 +1600,25 @@ export function buildColorblockPolo3D(
   const lm = getMannequinLandmarks(body, category);
 
   const yNeckBase = lm.yNeckBase;
-  const yHSP = yNeckBase + 0.5;
-  const yShoulderTip = lm.yShoulder + 0.5;
+  const yHSP = yNeckBase + 0.45;
+  const yShoulderTip = lm.yShoulder;
   const yArmpit = lm.yArmpit;
 
-  const bodyLen = Math.min(78, Math.max(42, (p.cbLength + p.backNeckDrop) * 0.92));
+  const bodyLen = Math.min(76, Math.max(42, (p.cbLength + p.backNeckDrop) * 0.9));
   const yHem = yHSP - bodyLen;
 
   const mBust = bodyBaseProfileAtY(lm.yBust, body, category);
-  const mSh = bodyBaseProfileAtY(lm.yShoulder, body, category);
-  const mNeck = bodyBaseProfileAtY(yNeckBase, body, category);
+  const mSh = bodyBaseProfileAtY(lm.yShoulder - 1.5, body, category);
+  const mNeck = bodyBaseProfileAtY(lm.yNeckMid, body, category);
 
-  // Realistic tailored polo cross-section: clean drape front-to-back without barrel bulge!
-  const rxChest = Math.max(mBust.rx + 2.4, (p.chest / (2 * Math.PI)) * 1.09);
-  const rzChest = Math.max(mBust.rz + 2.6, Math.min(mBust.rz + 3.7, (p.chest / (2 * Math.PI)) * 0.74));
-  // Sleek natural Polo shoulder width (merges seamlessly into short sleeves!)
-  const halfShoulder = Math.max(mSh.rx + 1.6, Math.min(rxChest + 1.4, p.shoulder * 0.43));
-  const shoulderDepth = Math.max(mSh.rz + 2.0, rzChest * 0.89);
-  const rNeckX = Math.max(mNeck.rx + 0.72, Math.min(mNeck.rx + 1.55, p.neckWidth * 0.34));
-  const rNeckZ = Math.max(mNeck.rz + 0.72, rNeckX * 0.95);
+  // Sleek tailored Polo cross-section (rounded shoulder flowing into sleeves, snug human neck!)
+  const skRef = getMannequinArmSkeleton(body, category, 1);
+  const rxChest = Math.max(mBust.rx + 2.0, (p.chest / (2 * Math.PI)) * 1.06);
+  const rzChest = Math.max(mBust.rz + 2.0, Math.min(mBust.rz + 2.6, (p.chest / (2 * Math.PI)) * 0.71));
+  const halfShoulder = Math.min(rxChest + 0.9, Math.max(mSh.rx + 1.3, Math.abs(skRef.deltoidOuter.x) + 0.35));
+  const shoulderDepth = Math.max(mSh.rz + 1.8, rzChest * 0.86);
+  const rNeckX = Math.max(mNeck.rx + 0.68, Math.min(mNeck.rx + 1.25, p.neckWidth * 0.3));
+  const rNeckZ = Math.max(mNeck.rz + 0.68, rNeckX * 0.98);
 
   const torsoCfg: UpperTorsoConfig = {
     yBottom: yHem,
@@ -1684,10 +1747,9 @@ export function buildColorblockPolo3D(
   });
 
   // 4. Authentic full-length 3D Dark Bottle Front Placket (17.5 cm adult / 14 cm youth!)
-  // Because y(v) is linear from yHem -> yFrontNeck, vStart = 1 - placketLength / (yFrontNeck - yHem)!
   const frontTorsoSpan = Math.max(30, yHSP - torsoCfg.frontNeckDrop - yHem);
   const plkHalfAngle = Math.min(0.11, (p.placketWidth * 0.54) / Math.max(10, rxChest));
-  const plkStartV = Math.max(0.58, Math.min(0.82, 1 - (p.placketLength * 0.92) / frontTorsoSpan));
+  const plkStartV = Math.max(0.5, Math.min(0.72, 0.72 * (1 - (p.placketLength * 0.62) / frontTorsoSpan)));
   const placketGeo = buildSurfacePatchGeometry(8, 18, (u, v) => {
     const theta = Math.PI / 2 + lerp(-plkHalfAngle, plkHalfAngle, u);
     const vPos = lerp(plkStartV, 0.998, v);

@@ -434,12 +434,17 @@ export function createWovenClothTextures(baseHex: string, isPique = false): {
       }
     }
   } else {
+    // Rich organic woven cotton/linen twill micro-grain (looks like real fabric, never flat plastic!)
     for (let y = 0; y < 256; y += 2) {
-      ctx.fillStyle = shadeRgb(rgb, y % 4 === 0 ? 4 : -4);
-      ctx.fillRect(0, y, 256, 1);
+      for (let x = 0; x < 256; x += 2) {
+        const grain = (hash2(x, y) - 0.5) * 9;
+        const twill = (x + y) % 6 === 0 ? 5 : (x + y) % 6 === 3 ? -5 : 0;
+        ctx.fillStyle = shadeRgb(rgb, grain + twill);
+        ctx.fillRect(x, y, 2, 2);
+      }
     }
-    for (let x = 0; x < 256; x += 2) {
-      ctx.fillStyle = x % 4 === 0 ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)";
+    for (let x = 0; x < 256; x += 4) {
+      ctx.fillStyle = x % 8 === 0 ? "rgba(255,255,255,0.035)" : "rgba(0,0,0,0.04)";
       ctx.fillRect(x, 0, 1, 256);
     }
   }

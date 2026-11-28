@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
   Camera,
   Eye,
@@ -22,7 +23,7 @@ import {
   buildBomberJacket3D,
   buildCircleSkirt3D,
   buildColorblockPolo3D,
-  buildRealisticMannequin,
+  buildRealisticMannequinMeta,
   FABRIC_PRESETS,
 } from "@/lib/cad/drape3d";
 import {
@@ -88,6 +89,10 @@ export function GarmentViewer3D({
     clothMaterial: THREE.MeshPhysicalMaterial;
     wbMaterial: THREE.MeshPhysicalMaterial;
   } | null>(null);
+
+  // Cache loaded CC0 MakeHuman GLB BufferGeometries per category so Women/Men/Kids switch instantaneously!
+  const glbCacheRef = useRef<Partial<Record<MannequinCategory, THREE.BufferGeometry>>>({});
+  const [loadedModelVersion, setLoadedModelVersion] = useState(0);
 
   const availableFabrics = useMemo(() => {
     const cat = isJean
@@ -204,18 +209,18 @@ export function GarmentViewer3D({
     gridHelper.position.y = -1.1;
     scene.add(gridHelper);
 
-    // Full-Body Realistic Studio Fashion Mannequin (CLO3D / Bonaveri Matte Alabaster Satin Finish!)
+    // Full-Body Artist-Sculpted CC0 MakeHuman Fashion Studio Avatar (Warm Matte Studio Satin Finish!)
     const mannequinGroup = new THREE.Group();
     const bodyMat = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color("#E5DDD5"),
-      roughness: 0.58,
-      metalness: 0.02,
-      sheen: 0.24,
-      sheenRoughness: 0.72,
+      color: new THREE.Color("#E8DDD3"),
+      roughness: 0.54,
+      metalness: 0.01,
+      sheen: 0.28,
+      sheenRoughness: 0.65,
       sheenColor: new THREE.Color("#FFFDF9"),
-      clearcoat: 0.04,
-      clearcoatRoughness: 0.78,
-      side: THREE.DoubleSide,
+      clearcoat: 0.05,
+      clearcoatRoughness: 0.72,
+      side: THREE.FrontSide,
     });
     const plinthMat = new THREE.MeshStandardMaterial({
       color: "#DDE3EA",
@@ -347,13 +352,15 @@ export function GarmentViewer3D({
       hwMat.dispose();
       floorGeo.dispose();
       floorMat.dispose();
+      Object.values(glbCacheRef.current).forEach((g) => g?.dispose());
+      glbCacheRef.current = {};
       threeRefs.current = null;
     };
   }, []);
 
-  // Rebuild 3D Full-Body Realistic Mannequin (Women / Men / Kids from Excel!) & Garment
+  // Rebuild 3D Mannequin Meta & Garment synchronously whenever template, params, size, or mannequin category changes
   const drapeData = useMemo(() => {
-    const mannequin = buildRealisticMannequin(mannequinCategory, sizeEntry.size);
+    const mannequin = buildRealisticMannequinMeta(mannequinCategory, sizeEntry.size);
     const garment = isJean
       ? buildBaggyJean3D(
           sizeEntry.params,
@@ -384,21 +391,55 @@ export function GarmentViewer3D({
     return { mannequin, garment };
   }, [isBomber, isJean, isPolo, mannequinCategory, selectedFabric.stiffness, sizeEntry]);
 
+  // Load real artist-sculpted CC0 MakeHuman GLB model for active category (cached in memory!)
+  useEffect(() => {
+    if (glbCacheRef.current[mannequinCategory]) return;
+    let cancelled = false;
+    const loader = new GLTFLoader();
+    loader.load(
+      drapeData.mannequin.modelUrl,
+      (gltf) => {
+        if (cancelled) return;
+        let foundGeo: THREE.BufferGeometry | null = null;
+        gltf.scene.traverse((obj) => {
+          if (!foundGeo && (obj as THREE.Mesh).isMesh) {
+            const m = obj as THREE.Mesh;
+            foundGeo = m.geometry.clone();
+          }
+        });
+        if (foundGeo) {
+          glbCacheRef.current[mannequinCategory] = foundGeo;
+          setLoadedModelVersion((v) => v + 1);
+        }
+      },
+      undefined,
+      (err) => {
+        console.error("Failed to load mannequin GLB:", err);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [drapeData.mannequin.modelUrl, mannequinCategory]);
+
   useEffect(() => {
     const ctx = threeRefs.current;
     if (!ctx) return;
 
     const { mannequin, garment } = drapeData;
 
-    ctx.bodyMesh.geometry.dispose();
-    ctx.bodyMesh.geometry = mannequin.bodyGeometry;
-    // Subtle authentic studio mannequin tone per category (warm bisque for Women, architectural stone-ivory for Men)
+    const cachedGeo = glbCacheRef.current[mannequinCategory];
+    if (cachedGeo && ctx.bodyMesh.geometry !== cachedGeo) {
+      ctx.bodyMesh.geometry = cachedGeo;
+    }
+    ctx.bodyMesh.scale.setScalar(mannequin.sizeScale);
+    // Warm luxury studio mannequin tone (subtle distinction between Women, Men, and Kids!)
     ctx.bodyMat.color.set(
       mannequinCategory === "men"
-        ? "#DDD6CE"
+        ? "#DFD7CF"
         : mannequinCategory === "kids"
-          ? "#EAE3DB"
-          : "#E7DFD6"
+          ? "#ECE4DC"
+          : "#E9DFD5"
     );
     ctx.bodyMat.needsUpdate = true;
 
@@ -460,7 +501,7 @@ export function GarmentViewer3D({
       : lm.yCrown * 0.52;
     ctx.controls.target.set(0, targetY, 0);
     ctx.controls.update();
-  }, [drapeData, isTopGarment, mannequinCategory, showSeams, wireframe]);
+  }, [drapeData, isTopGarment, loadedModelVersion, mannequinCategory, showSeams, wireframe]);
 
   useEffect(() => {
     const ctx = threeRefs.current;

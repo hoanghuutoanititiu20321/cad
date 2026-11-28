@@ -22,13 +22,12 @@ import {
   buildBomberJacket3D,
   buildCircleSkirt3D,
   buildColorblockPolo3D,
-  buildMannequinGeometries,
+  buildRealisticMannequin,
   FABRIC_PRESETS,
 } from "@/lib/cad/drape3d";
 import {
   createDenimTextures,
   createFleeceTextures,
-  createMannequinLinenTextures,
   createPoloColorblockTextures,
   createStripedRibTextures,
   createWovenClothTextures,
@@ -44,7 +43,7 @@ interface GarmentViewer3DProps {
   activeBaseSize: SizeCode;
 }
 
-type CameraPreset = "front" | "three-quarter" | "side" | "back";
+type CameraPreset = "full" | "front" | "three-quarter" | "side" | "back";
 
 export function GarmentViewer3D({
   templateId,
@@ -77,10 +76,9 @@ export function GarmentViewer3D({
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
     mannequinGroup: THREE.Group;
-    torsoMesh: THREE.Mesh;
-    neckCapMesh: THREE.Mesh;
-    poleMesh: THREE.Mesh;
-    baseMesh: THREE.Mesh;
+    bodyMesh: THREE.Mesh;
+    bodyMat: THREE.MeshPhysicalMaterial;
+    plinthMesh: THREE.Mesh;
     primaryMesh: THREE.Mesh;
     waistbandMesh: THREE.Mesh;
     extraPartsGroup: THREE.Group;
@@ -130,8 +128,8 @@ export function GarmentViewer3D({
     const scene = new THREE.Scene();
     scene.background = new THREE.Color("#F8FAFC");
 
-    const camera = new THREE.PerspectiveCamera(36, width / height, 2, 950);
-    camera.position.set(118, 102, 205);
+    const camera = new THREE.PerspectiveCamera(36, width / height, 2, 1050);
+    camera.position.set(132, 106, 250);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -151,9 +149,9 @@ export function GarmentViewer3D({
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.07;
-    controls.target.set(0, 74, 0);
+    controls.target.set(0, 86, 0);
     controls.minDistance = 75;
-    controls.maxDistance = 420;
+    controls.maxDistance = 480;
     controls.maxPolarAngle = Math.PI * 0.52;
     controls.update();
 
@@ -161,36 +159,36 @@ export function GarmentViewer3D({
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     const envRT = pmremGenerator.fromScene(new RoomEnvironment(), 0.04);
     scene.environment = envRT.texture;
-    scene.environmentIntensity = 0.2;
+    scene.environmentIntensity = 0.22;
 
-    // 3-Point Fashion Studio Lighting
-    const hemiLight = new THREE.HemisphereLight("#FFFFFF", "#CBD5E1", 0.78);
-    hemiLight.position.set(0, 240, 0);
+    // 3-Point Fashion Studio Lighting (sculpts subtle human anatomical shading on bust, pecs, collarbones & jawline!)
+    const hemiLight = new THREE.HemisphereLight("#FFFFFF", "#CBD5E1", 0.72);
+    hemiLight.position.set(0, 260, 0);
     scene.add(hemiLight);
 
-    const keyLight = new THREE.DirectionalLight("#FFFDF9", 1.15);
-    keyLight.position.set(105, 220, 155);
+    const keyLight = new THREE.DirectionalLight("#FFFBF5", 1.25);
+    keyLight.position.set(115, 235, 165);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.set(1024, 1024);
     keyLight.shadow.camera.near = 40;
-    keyLight.shadow.camera.far = 450;
-    keyLight.shadow.camera.left = -100;
-    keyLight.shadow.camera.right = 100;
-    keyLight.shadow.camera.top = 175;
+    keyLight.shadow.camera.far = 480;
+    keyLight.shadow.camera.left = -110;
+    keyLight.shadow.camera.right = 110;
+    keyLight.shadow.camera.top = 195;
     keyLight.shadow.camera.bottom = -15;
     keyLight.shadow.bias = -0.0005;
     scene.add(keyLight);
 
-    const rimLight = new THREE.DirectionalLight("#E0E7FF", 0.52);
-    rimLight.position.set(-115, 155, -135);
+    const rimLight = new THREE.DirectionalLight("#DCE7FF", 0.58);
+    rimLight.position.set(-125, 165, -145);
     scene.add(rimLight);
 
-    const fillLight = new THREE.DirectionalLight("#FFFFFF", 0.36);
-    fillLight.position.set(-85, 85, 115);
+    const fillLight = new THREE.DirectionalLight("#FFFFFF", 0.34);
+    fillLight.position.set(-95, 95, 120);
     scene.add(fillLight);
 
-    // Studio Floor
-    const floorGeo = new THREE.CircleGeometry(135, 64);
+    // Studio Floor (sits cleanly under feet plinth at y = -1.2)
+    const floorGeo = new THREE.CircleGeometry(145, 64);
     floorGeo.rotateX(-Math.PI / 2);
     const floorMat = new THREE.MeshStandardMaterial({
       color: "#F1F5F9",
@@ -198,50 +196,41 @@ export function GarmentViewer3D({
       metalness: 0.0,
     });
     const floorMesh = new THREE.Mesh(floorGeo, floorMat);
+    floorMesh.position.y = -1.2;
     floorMesh.receiveShadow = true;
     scene.add(floorMesh);
 
-    const gridHelper = new THREE.GridHelper(210, 21, "#CBD5E1", "#E2E8F0");
-    gridHelper.position.y = 0.12;
+    const gridHelper = new THREE.GridHelper(220, 22, "#CBD5E1", "#E2E8F0");
+    gridHelper.position.y = -1.1;
     scene.add(gridHelper);
 
-    // Sculpted Atelier Tailor Mannequin Group (Linen Canvas + Walnut Neck Finial + Brushed Steel Stand)
+    // Full-Body Realistic Studio Fashion Mannequin (CLO3D / Bonaveri Matte Alabaster Satin Finish!)
     const mannequinGroup = new THREE.Group();
-    const linenTex = createMannequinLinenTextures();
-    const linenFormMat = new THREE.MeshStandardMaterial({
-      color: "#FFFFFF",
-      map: linenTex.map,
-      bumpMap: linenTex.bumpMap,
-      bumpScale: 0.22,
-      roughness: 0.9,
-      metalness: 0.01,
+    const bodyMat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color("#E5DDD5"),
+      roughness: 0.58,
+      metalness: 0.02,
+      sheen: 0.24,
+      sheenRoughness: 0.72,
+      sheenColor: new THREE.Color("#FFFDF9"),
+      clearcoat: 0.04,
+      clearcoatRoughness: 0.78,
       side: THREE.DoubleSide,
     });
-    const walnutWoodMat = new THREE.MeshStandardMaterial({
-      color: "#6B4423",
-      roughness: 0.42,
-      metalness: 0.08,
-    });
-    const standMetalMat = new THREE.MeshStandardMaterial({
-      color: "#334155",
-      roughness: 0.32,
-      metalness: 0.78,
+    const plinthMat = new THREE.MeshStandardMaterial({
+      color: "#DDE3EA",
+      roughness: 0.38,
+      metalness: 0.18,
     });
 
-    const torsoMesh = new THREE.Mesh(new THREE.BufferGeometry(), linenFormMat);
-    torsoMesh.castShadow = true;
-    torsoMesh.receiveShadow = true;
+    const bodyMesh = new THREE.Mesh(new THREE.BufferGeometry(), bodyMat);
+    bodyMesh.castShadow = true;
+    bodyMesh.receiveShadow = true;
 
-    const neckCapMesh = new THREE.Mesh(new THREE.BufferGeometry(), walnutWoodMat);
-    neckCapMesh.castShadow = true;
+    const plinthMesh = new THREE.Mesh(new THREE.BufferGeometry(), plinthMat);
+    plinthMesh.receiveShadow = true;
 
-    const poleMesh = new THREE.Mesh(new THREE.BufferGeometry(), standMetalMat);
-    poleMesh.castShadow = true;
-
-    const baseMesh = new THREE.Mesh(new THREE.BufferGeometry(), standMetalMat);
-    baseMesh.receiveShadow = true;
-
-    mannequinGroup.add(torsoMesh, neckCapMesh, poleMesh, baseMesh);
+    mannequinGroup.add(bodyMesh, plinthMesh);
     scene.add(mannequinGroup);
 
     // Cloth Physical Materials (Deep Matte Natural Fabric Sheen + Bump Map Ready!)
@@ -297,10 +286,9 @@ export function GarmentViewer3D({
       camera,
       controls,
       mannequinGroup,
-      torsoMesh,
-      neckCapMesh,
-      poleMesh,
-      baseMesh,
+      bodyMesh,
+      bodyMat,
+      plinthMesh,
       primaryMesh,
       waistbandMesh,
       extraPartsGroup,
@@ -347,11 +335,8 @@ export function GarmentViewer3D({
       renderer.dispose();
       envRT.dispose();
       pmremGenerator.dispose();
-      linenTex.map.dispose();
-      linenTex.bumpMap.dispose();
-      linenFormMat.dispose();
-      walnutWoodMat.dispose();
-      standMetalMat.dispose();
+      bodyMat.dispose();
+      plinthMat.dispose();
       clothMaterial.map?.dispose();
       clothMaterial.bumpMap?.dispose();
       clothMaterial.dispose();
@@ -366,14 +351,9 @@ export function GarmentViewer3D({
     };
   }, []);
 
-  // Rebuild 3D Mannequin (from Excel Standard!) & Garment whenever template, params, size, or mannequin category changes
+  // Rebuild 3D Full-Body Realistic Mannequin (Women / Men / Kids from Excel!) & Garment
   const drapeData = useMemo(() => {
-    const mannequin = buildMannequinGeometries(
-      isTopGarment ? 72 : sizeEntry.measurements.waistCm,
-      mannequinCategory,
-      sizeEntry.size,
-      true
-    );
+    const mannequin = buildRealisticMannequin(mannequinCategory, sizeEntry.size);
     const garment = isJean
       ? buildBaggyJean3D(
           sizeEntry.params,
@@ -402,7 +382,7 @@ export function GarmentViewer3D({
               sizeEntry.size
             );
     return { mannequin, garment };
-  }, [isBomber, isJean, isPolo, isTopGarment, mannequinCategory, selectedFabric.stiffness, sizeEntry]);
+  }, [isBomber, isJean, isPolo, mannequinCategory, selectedFabric.stiffness, sizeEntry]);
 
   useEffect(() => {
     const ctx = threeRefs.current;
@@ -410,17 +390,20 @@ export function GarmentViewer3D({
 
     const { mannequin, garment } = drapeData;
 
-    ctx.torsoMesh.geometry.dispose();
-    ctx.torsoMesh.geometry = mannequin.torsoGeometry;
+    ctx.bodyMesh.geometry.dispose();
+    ctx.bodyMesh.geometry = mannequin.bodyGeometry;
+    // Subtle authentic studio mannequin tone per category (warm bisque for Women, architectural stone-ivory for Men)
+    ctx.bodyMat.color.set(
+      mannequinCategory === "men"
+        ? "#DDD6CE"
+        : mannequinCategory === "kids"
+          ? "#EAE3DB"
+          : "#E7DFD6"
+    );
+    ctx.bodyMat.needsUpdate = true;
 
-    ctx.neckCapMesh.geometry.dispose();
-    ctx.neckCapMesh.geometry = mannequin.neckCapGeometry;
-
-    ctx.poleMesh.geometry.dispose();
-    ctx.poleMesh.geometry = mannequin.poleGeometry;
-
-    ctx.baseMesh.geometry.dispose();
-    ctx.baseMesh.geometry = mannequin.baseGeometry;
+    ctx.plinthMesh.geometry.dispose();
+    ctx.plinthMesh.geometry = mannequin.plinthGeometry;
 
     ctx.primaryMesh.geometry.dispose();
     ctx.primaryMesh.geometry = garment.primaryGeometry;
@@ -470,11 +453,14 @@ export function GarmentViewer3D({
       ctx.hardwareMesh.visible = false;
     }
 
-    // Center camera smoothly on upper-body vs lower-body garment
-    const targetY = isTopGarment ? 112 : isJean ? 68 : 82;
+    // Center camera smoothly on full-body or upper-body garment (scales gracefully for Kids vs Adults!)
+    const lm = mannequin.landmarks;
+    const targetY = isTopGarment
+      ? lm.yWaist + (lm.yCrown - lm.yWaist) * 0.2
+      : lm.yCrown * 0.52;
     ctx.controls.target.set(0, targetY, 0);
     ctx.controls.update();
-  }, [drapeData, isJean, isTopGarment, showSeams, wireframe]);
+  }, [drapeData, isTopGarment, mannequinCategory, showSeams, wireframe]);
 
   useEffect(() => {
     const ctx = threeRefs.current;
@@ -573,14 +559,32 @@ export function GarmentViewer3D({
   const setCameraPreset = (preset: CameraPreset) => {
     const ctx = threeRefs.current;
     if (!ctx) return;
-    const focusY = isTopGarment ? 112 : isJean ? 68 : 82;
-    const camY = isTopGarment ? 124 : 88;
-    const dist = isTopGarment ? 175 : 225;
+    const lm = drapeData.mannequin.landmarks;
+    const fullH = lm.yCrown;
+    const isFull = preset === "full";
+    const focusY = isFull
+      ? fullH * 0.51
+      : isTopGarment
+        ? lm.yWaist + (fullH - lm.yWaist) * 0.22
+        : fullH * 0.5;
+    const camY = isFull
+      ? fullH * 0.55
+      : isTopGarment
+        ? focusY + 10
+        : fullH * 0.54;
+    const dist = isFull
+      ? fullH * 1.78
+      : isTopGarment
+        ? fullH * 1.24
+        : fullH * 1.72;
+
     ctx.controls.target.set(0, focusY, 0);
-    if (preset === "front") {
+    if (preset === "full") {
+      ctx.camera.position.set(dist * 0.36, camY + 6, dist * 0.94);
+    } else if (preset === "front") {
       ctx.camera.position.set(0, camY, dist);
     } else if (preset === "three-quarter") {
-      ctx.camera.position.set(dist * 0.52, camY + 12, dist * 0.9);
+      ctx.camera.position.set(dist * 0.52, camY + 10, dist * 0.9);
     } else if (preset === "side") {
       ctx.camera.position.set(dist, camY, 0);
     } else if (preset === "back") {
@@ -660,6 +664,7 @@ export function GarmentViewer3D({
           <div className="hidden xl:flex items-center gap-1">
             {(
               [
+                { id: "full", label: "Toàn thân" },
                 { id: "three-quarter", label: "3/4" },
                 { id: "front", label: "Trước" },
                 { id: "side", label: "Sườn" },

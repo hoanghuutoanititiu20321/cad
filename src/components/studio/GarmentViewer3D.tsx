@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import {
   Camera,
   Eye,
@@ -24,6 +25,14 @@ import {
   buildMannequinGeometries,
   FABRIC_PRESETS,
 } from "@/lib/cad/drape3d";
+import {
+  createDenimTextures,
+  createFleeceTextures,
+  createMannequinLinenTextures,
+  createPoloColorblockTextures,
+  createStripedRibTextures,
+  createWovenClothTextures,
+} from "@/lib/cad/textures3d";
 import type { NestedGradingResult, SizeCode } from "@/lib/cad/types";
 import { SIZE_DEFINITIONS } from "@/templates/circle-skirt/grading";
 import { cn } from "@/lib/utils";
@@ -148,13 +157,19 @@ export function GarmentViewer3D({
     controls.maxPolarAngle = Math.PI * 0.52;
     controls.update();
 
+    // Soft Fashion Atelier IBL Studio Environment (balanced so dark Maroon/Bottle fabrics stay deep & rich!)
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    const envRT = pmremGenerator.fromScene(new RoomEnvironment(), 0.04);
+    scene.environment = envRT.texture;
+    scene.environmentIntensity = 0.2;
+
     // 3-Point Fashion Studio Lighting
-    const hemiLight = new THREE.HemisphereLight("#FFFFFF", "#CBD5E1", 1.18);
+    const hemiLight = new THREE.HemisphereLight("#FFFFFF", "#CBD5E1", 0.78);
     hemiLight.position.set(0, 240, 0);
     scene.add(hemiLight);
 
-    const keyLight = new THREE.DirectionalLight("#FFFDF9", 1.45);
-    keyLight.position.set(105, 220, 145);
+    const keyLight = new THREE.DirectionalLight("#FFFDF9", 1.15);
+    keyLight.position.set(105, 220, 155);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.set(1024, 1024);
     keyLight.shadow.camera.near = 40;
@@ -166,12 +181,12 @@ export function GarmentViewer3D({
     keyLight.shadow.bias = -0.0005;
     scene.add(keyLight);
 
-    const rimLight = new THREE.DirectionalLight("#E0E7FF", 0.78);
-    rimLight.position.set(-115, 150, -135);
+    const rimLight = new THREE.DirectionalLight("#E0E7FF", 0.52);
+    rimLight.position.set(-115, 155, -135);
     scene.add(rimLight);
 
-    const fillLight = new THREE.DirectionalLight("#FFFFFF", 0.48);
-    fillLight.position.set(-85, 75, 115);
+    const fillLight = new THREE.DirectionalLight("#FFFFFF", 0.36);
+    fillLight.position.set(-85, 85, 115);
     scene.add(fillLight);
 
     // Studio Floor
@@ -179,7 +194,7 @@ export function GarmentViewer3D({
     floorGeo.rotateX(-Math.PI / 2);
     const floorMat = new THREE.MeshStandardMaterial({
       color: "#F1F5F9",
-      roughness: 0.95,
+      roughness: 0.96,
       metalness: 0.0,
     });
     const floorMesh = new THREE.Mesh(floorGeo, floorMat);
@@ -190,43 +205,54 @@ export function GarmentViewer3D({
     gridHelper.position.y = 0.12;
     scene.add(gridHelper);
 
-    // Full-Body Anatomical Mannequin Group
+    // Sculpted Atelier Tailor Mannequin Group (Linen Canvas + Walnut Neck Finial + Brushed Steel Stand)
     const mannequinGroup = new THREE.Group();
+    const linenTex = createMannequinLinenTextures();
     const linenFormMat = new THREE.MeshStandardMaterial({
-      color: "#F2EDE4",
-      roughness: 0.85,
-      metalness: 0.02,
+      color: "#FFFFFF",
+      map: linenTex.map,
+      bumpMap: linenTex.bumpMap,
+      bumpScale: 0.22,
+      roughness: 0.9,
+      metalness: 0.01,
+      side: THREE.DoubleSide,
     });
-    const woodMetalMat = new THREE.MeshStandardMaterial({
-      color: "#475569",
-      roughness: 0.35,
-      metalness: 0.72,
+    const walnutWoodMat = new THREE.MeshStandardMaterial({
+      color: "#6B4423",
+      roughness: 0.42,
+      metalness: 0.08,
+    });
+    const standMetalMat = new THREE.MeshStandardMaterial({
+      color: "#334155",
+      roughness: 0.32,
+      metalness: 0.78,
     });
 
     const torsoMesh = new THREE.Mesh(new THREE.BufferGeometry(), linenFormMat);
     torsoMesh.castShadow = true;
     torsoMesh.receiveShadow = true;
 
-    const neckCapMesh = new THREE.Mesh(new THREE.BufferGeometry(), woodMetalMat);
+    const neckCapMesh = new THREE.Mesh(new THREE.BufferGeometry(), walnutWoodMat);
     neckCapMesh.castShadow = true;
 
-    const poleMesh = new THREE.Mesh(new THREE.BufferGeometry(), woodMetalMat);
+    const poleMesh = new THREE.Mesh(new THREE.BufferGeometry(), standMetalMat);
     poleMesh.castShadow = true;
 
-    const baseMesh = new THREE.Mesh(new THREE.BufferGeometry(), woodMetalMat);
+    const baseMesh = new THREE.Mesh(new THREE.BufferGeometry(), standMetalMat);
     baseMesh.receiveShadow = true;
 
     mannequinGroup.add(torsoMesh, neckCapMesh, poleMesh, baseMesh);
     scene.add(mannequinGroup);
 
-    // Cloth Physical Materials
+    // Cloth Physical Materials (Deep Matte Natural Fabric Sheen + Bump Map Ready!)
     const clothMaterial = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color("#4F46E5"),
-      roughness: 0.72,
-      metalness: 0.04,
-      sheen: 0.45,
-      sheenRoughness: 0.65,
+      color: new THREE.Color("#FFFFFF"),
+      roughness: 0.88,
+      metalness: 0.01,
+      sheen: 0.18,
+      sheenRoughness: 0.85,
       sheenColor: new THREE.Color("#FFFFFF"),
+      bumpScale: 0.32,
       side: THREE.DoubleSide,
     });
     const wbMaterial = clothMaterial.clone();
@@ -319,9 +345,18 @@ export function GarmentViewer3D({
       }
       controls.dispose();
       renderer.dispose();
+      envRT.dispose();
+      pmremGenerator.dispose();
+      linenTex.map.dispose();
+      linenTex.bumpMap.dispose();
       linenFormMat.dispose();
-      woodMetalMat.dispose();
+      walnutWoodMat.dispose();
+      standMetalMat.dispose();
+      clothMaterial.map?.dispose();
+      clothMaterial.bumpMap?.dispose();
       clothMaterial.dispose();
+      wbMaterial.map?.dispose();
+      wbMaterial.bumpMap?.dispose();
       wbMaterial.dispose();
       seamMat.dispose();
       hwMat.dispose();
@@ -445,14 +480,55 @@ export function GarmentViewer3D({
     const ctx = threeRefs.current;
     if (!ctx) return;
 
-    ctx.clothMaterial.color.set(selectedFabric.color);
+    const { garment } = drapeData;
+    const pKind = garment.primaryTextureKind ?? "woven";
+    const wbKind = garment.waistbandTextureKind ?? "woven";
+
+    // Dispose old procedural cloth textures cleanly before assigning new ones
+    ctx.clothMaterial.map?.dispose();
+    ctx.clothMaterial.bumpMap?.dispose();
+    ctx.wbMaterial.map?.dispose();
+    ctx.wbMaterial.bumpMap?.dispose();
+
+    // Primary fabric texture (Denim Twill, Brushed Fleece, 1024px Diagonal Colorblock Polo, or Woven Skirt)
+    const primaryTex =
+      pKind === "denim"
+        ? createDenimTextures(selectedFabric.color)
+        : pKind === "fleece"
+          ? createFleeceTextures(selectedFabric.color)
+          : pKind === "polo-torso"
+            ? createPoloColorblockTextures({
+                mainHex: selectedFabric.color,
+                diagonalColorblock: Boolean(garment.textureParams?.diagonalColorblock ?? true),
+                stripeWidthRatio: Number(garment.textureParams?.stripeWidthRatio ?? 0.075),
+                placketWidthRatio: Number(garment.textureParams?.placketWidthRatio ?? 0.028),
+                placketLengthRatio: Number(garment.textureParams?.placketLengthRatio ?? 0.24),
+              })
+            : createWovenClothTextures(selectedFabric.color, pKind === "polo-solid");
+
+    ctx.clothMaterial.color.set("#FFFFFF");
+    ctx.clothMaterial.map = primaryTex.map;
+    ctx.clothMaterial.bumpMap = primaryTex.bumpMap;
+    ctx.clothMaterial.bumpScale =
+      pKind === "denim" ? 0.45 : pKind === "fleece" ? 0.38 : 0.26;
     ctx.clothMaterial.roughness = selectedFabric.roughness;
     ctx.clothMaterial.metalness = selectedFabric.metalness;
     ctx.clothMaterial.wireframe = wireframe;
     ctx.clothMaterial.needsUpdate = true;
 
-    ctx.wbMaterial.color.set(selectedFabric.color);
-    ctx.wbMaterial.roughness = Math.max(0.28, selectedFabric.roughness - 0.05);
+    // Trim / Waistband / Collar / Rib texture (1x1 Rib Knit w/ 2 Gold Stripes, Solid Piqué Sleeves/Collar, Denim Band)
+    const wbTex =
+      wbKind === "rib-striped"
+        ? createStripedRibTextures(selectedFabric.color, selectedFabric.seamColor, true)
+        : wbKind === "denim"
+          ? createDenimTextures(selectedFabric.color)
+          : createWovenClothTextures(selectedFabric.color, wbKind === "polo-solid");
+
+    ctx.wbMaterial.color.set("#FFFFFF");
+    ctx.wbMaterial.map = wbTex.map;
+    ctx.wbMaterial.bumpMap = wbTex.bumpMap;
+    ctx.wbMaterial.bumpScale = wbKind === "rib-striped" ? 0.85 : 0.3;
+    ctx.wbMaterial.roughness = Math.max(0.32, selectedFabric.roughness - 0.04);
     ctx.wbMaterial.metalness = selectedFabric.metalness;
     ctx.wbMaterial.wireframe = wireframe;
     ctx.wbMaterial.needsUpdate = true;
@@ -460,15 +536,34 @@ export function GarmentViewer3D({
     ctx.seamMat.color.set(selectedFabric.seamColor);
     ctx.seamMat.needsUpdate = true;
 
+    // Match hardware color to real garment trims (DTM press studs on Bomber, Dark Bottle buttons on Polo, Copper on Jeans!)
+    const hwMat = ctx.hardwareMesh.material as THREE.MeshStandardMaterial;
+    if (isBomber) {
+      hwMat.color.set(selectedFabric.color);
+      hwMat.roughness = 0.36;
+      hwMat.metalness = 0.45;
+    } else if (isPolo) {
+      hwMat.color.set("#1C2523");
+      hwMat.roughness = 0.42;
+      hwMat.metalness = 0.15;
+    } else {
+      hwMat.color.set("#B45309");
+      hwMat.roughness = 0.28;
+      hwMat.metalness = 0.85;
+    }
+    hwMat.needsUpdate = true;
+
     ctx.mannequinGroup.visible = showMannequin;
     ctx.seamLines.visible = showSeams;
     ctx.hardwareMesh.visible =
-      showSeams && Boolean(drapeData.garment.hardwareGeometry);
+      showSeams && Boolean(garment.hardwareGeometry);
     ctx.controls.autoRotate = autoRotate;
-    ctx.controls.autoRotateSpeed = 1.8;
+    ctx.controls.autoRotateSpeed = 1.6;
   }, [
     autoRotate,
-    drapeData.garment.hardwareGeometry,
+    drapeData,
+    isBomber,
+    isPolo,
     selectedFabric,
     showMannequin,
     showSeams,
